@@ -24,33 +24,97 @@
 
 (def current-ns *ns*)
 
+(defn html? [request]
+  (str/includes? (get-in request [:headers "accept"] "") "http"))
+
+(defn json? [request]
+  (or (str/includes? (get-in request [:headers "accept"] "") "json")
+      (= "json" (get-in request [:query-params :_format]))))
+
+(defn layout [context request content]
+  (uui/boost-response
+   context request
+   [:div
+    [:div {:class "px-10 flex items-center space-x-4 border-b border-gray-300"}
+     [:b "FHIR Packages"]
+     [:a {:href "/"   :class "text-sm px-2 py-3"} "Packages"]
+     [:a {:href "/canonicals" :class "text-sm px-2 py-3"}"Canonicals"]
+     [:a {:href "/timeline"   :class "text-sm px-2 py-3"}"Timeline"]
+     [:div {:class "flex-1"}]
+     ]
+    [:div {:class "p-6"}
+
+     content]]))
+
+(defn elipse [txt & [limit]]
+  (when txt
+    [:span (subs txt 0 (min (count txt) (or limit 100))) "..."]))
+
 (defn ^{:http {:path "/"}}
   index
   [context request]
   (let [packages   (pg.repo/select context {:table "fhir_packages.package"})]
-    (uui/boost-response
-     context request
-     [:div {:class "divide-x"}
-      (for [pkg packages]
-        [:div {:class "py-2"}
-         [:a {:href (str "/" (:name pkg))}
-          [:b (:name pkg)]]
-         #_(uui/json-block pkg)])])))
+    (if (not (json? request))
+      (layout
+       context request
+       [:div {:class "p-6"}
+        [:div [:input {:class "box border w-full rounded border-gray-300 py-2 px-4" :placehoder "search"}]
+         [:div {:class "mt-2"}
+          [:select
+           [:option "R4 - 4.0.1"]
+           [:option "R4b - 4.0.1"]
+           [:option "R5 - 4.0.1"]
+           ]]]
+        [:div {:class "mt-4 divide-y divide-gray-200"}
+         (for [pkg packages]
+           [:div {:class "py-0 flex items-center"}
+            [:a {:class "px-2 py-2 text-sky-600" :href (str "/" (:name pkg))}
+             [:b (:name pkg)]]
+            [:p {:class "flex-1 text-sm text-gray-500"} (elipse (:description pkg))]
+            (map (fn [x] [:a {:href (str "/" (:name pkg) "/" (:version pkg))
+                             :class "text-sky-600 hover:bg-blue-100 text-sm border rounded border-gray-200 px-2 py-1" }
+                         (name x)]) (keys (:versions pkg)))
+            ])]])
+      {:body packages
+       :headers {"content-type" "application/json"}
+       :status 200})))
 
 (defn ^{:http {:path "/:package"}}
   package
   [context {{package :package} :route-params :as request}]
   (let [package   (pg.repo/read context {:table "fhir_packages.package" :match {:name package}})]
-    {:body package :status 200}
-    #_(uui/boost-response
-     context request
-     [:div {:class "divide-x"}
-      (uui/json-block package)])))
+    (if (not (json? request))
+      (layout
+       context request
+       [:div {:class "p-6 flex items-top space-x-8" }
+        [:div {:class "flex-1"}
+         [:h1.uui (:name package)]
+         [:p {:class "mt-4 text-gray-600 text-sm w-3xl"}
+          (:description package)]]
+        [:div {:class "w-20"}
+         [:h2.uui "Versions"]
+         (for [[v proj] (:versions package)]
+           [:div {:class "py-2"}
+            [:a {:class "text-sky-600" :href (str "/" (:name proj) "/" (:version proj))} (:version proj)]])]
+        #_(uui/json-block package)])
+      {:body package :status 200})))
 
 (defn ^{:http {:path "/:package/:version"}}
   package-version
-  [context request]
-  {:status 404})
+  [context {{package :package version :version} :route-params :as request}]
+  (if-let [package   (pg.repo/read context {:table "fhir_packages.package_version" :match {:name package :version version}})]
+    (if (not (json? request))
+      (layout
+       context request
+       [:div {:class "p-6 flex items-top space-x-8" }
+        [:h1.uui (:name package)]
+        [:p {:class "mt-4 text-gray-600 text-sm w-3xl"}
+         (:description package)]
+        (uui/json-block package)])
+      {:body package :status 200})
+    (if (not (json? request))
+      (layout context request [:div {:class "px-6 text-red-600"} (str package "#" version " not found")])
+      {:status 404})))
 
 (defn reduce-tar [^InputStream input-stream cb & [acc]]
   (with-open [^GzipCompressorInputStream gzip-compressor-input-stream (GzipCompressorInputStream. input-stream)
@@ -141,7 +205,7 @@
 
   (pgd/delete-pg "fhir-registry")
 
-  (pg/generate-migration "fhir_packages")
+  ;; (pg/generate-migration "fhir_packages")
 
   (def pg-config (pgd/ensure-pg "fhir-registry"))
 
