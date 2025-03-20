@@ -42,7 +42,7 @@
      [:a {:href "/timeline"   :class "text-sm px-2 py-3"}"Timeline"]
      [:div {:class "flex-1"}]
      ]
-    [:div {:class "p-6"}
+    [:div {:class "p-3"}
 
      content]]))
 
@@ -57,7 +57,7 @@
     (if (not (json? request))
       (layout
        context request
-       [:div {:class "p-6"}
+       [:div {:class "p-3"}
         [:div [:input {:class "box border w-full rounded border-gray-300 py-2 px-4" :placehoder "search"}]
          [:div {:class "mt-2"}
           [:select
@@ -67,12 +67,13 @@
            ]]]
         [:div {:class "mt-4 divide-y divide-gray-200"}
          (for [pkg packages]
-           [:div {:class "py-0 flex items-center"}
-            [:a {:class "px-2 py-2 text-sky-600" :href (str "/" (:name pkg))}
-             [:b (:name pkg)]]
+           [:div {:class "py-0 flex items-center space-x-2"}
+            (ico/cube "size-4 text-gray-500" :outline)
+            [:a {:class "py-2 font-semibold text-sky-600" :href (str "/" (:name pkg))}
+             (:name pkg)]
             [:p {:class "flex-1 text-sm text-gray-500"} (elipse (:description pkg))]
-            (map (fn [x] [:a {:href (str "/" (:name pkg) "/" (:version pkg))
-                             :class "text-sky-600 hover:bg-blue-100 text-sm border rounded border-gray-200 px-2 py-1" }
+            (map (fn [x] [:a {:href (str "/" (:name x) "/" (:version x))
+                             :class "text-sky-600 hover:bg-blue-100 font-semibold text-xs border rounded border-gray-200 px-2 py-1" }
                          (name x)]) (keys (:versions pkg)))
             ])]])
       {:body packages
@@ -86,32 +87,54 @@
     (if (not (json? request))
       (layout
        context request
-       [:div {:class "p-6 flex items-top space-x-8" }
-        [:div {:class "flex-1"}
-         [:h1.uui (:name package)]
-         [:p {:class "mt-4 text-gray-600 text-sm w-3xl"}
-          (:description package)]]
-        [:div {:class "w-20"}
-         [:h2.uui "Versions"]
-         (for [[v proj] (:versions package)]
-           [:div {:class "py-2"}
-            [:a {:class "text-sky-600" :href (str "/" (:name proj) "/" (:version proj))} (:version proj)]])]
-        #_(uui/json-block package)])
+       [:div {:class "p-3"}
+        (uui/breadcramp
+         ["/" "Packages"]
+         ["#" (:name package)])
+        [:div {:class "flex items-top space-x-8"}
+         [:div {:class "p-3 w-3xl" }
+          [:h1.uui {:class "border-b py-2"} (:name package)]
+          [:p {:class "mt-4 text-gray-600 text-sm w-3xl"}
+           (:description package)]]
+         [:div
+          [:h2.uui "Versions"]
+          [:div {:class "divide-y divide-gray-300"}
+           (for [[v proj] (:versions package)]
+             [:div {:class "py-1"}
+              [:a {:class "text-sky-600" :href (str "/" (:name proj) "/" (:version proj))} (:version proj)]])]]
+
+         ]]
+       )
       {:body package :status 200})))
 
 (defn ^{:http {:path "/:package/:version"}}
   package-version
   [context {{package :package version :version} :route-params :as request}]
   (if-let [package   (pg.repo/read context {:table "fhir_packages.package_version" :match {:name package :version version}})]
-    (if (not (json? request))
-      (layout
-       context request
-       [:div {:class "p-6 flex items-top space-x-8" }
-        [:h1.uui (:name package)]
-        [:p {:class "mt-4 text-gray-600 text-sm w-3xl"}
-         (:description package)]
-        (uui/json-block package)])
-      {:body package :status 200})
+    (let [deps      (pg/execute! context {:sql ["select * from fhir_packages.package_dependency where source_id = ?" (:id package)]})]
+      (if (not (json? request))
+        (layout
+         context request
+         [:div {:class "p-3" }
+          (uui/breadcramp ["/" "Packages"] [(str "/" (:name package)) (:name package)] ["#" (:version package)])
+          [:div {:class "flex space-x-8"}
+           [:div {:class "w-3xl" }
+            [:h1.uui {:class  "flex items-center space-x-8 border-b py-2"}
+             [:span {:class "flex-1"} (:name package)  "@" (:version package)]
+             (map (fn [x] [:span {:class "flex items-center"} (ico/fire "size-4") [:span x]]) (:fhirVersions package))
+             [:a {:href "" :class "border px-2 py-1 hover:bg-gray-100 rounded border-gray-300 hover:text-sky-600 text-gray-600"}
+              (ico/cloud-arrow-down "size-4")]]
+            [:p {:class "mt-4 text-gray-600 text-sm"}
+             (:description package)]
+            (uui/json-block package)]
+           [:div
+            [:h2.uui "Deps"]
+            [:div {:class "divide-y divide-gray-200 text-sm"}
+             (for [d deps]
+               [:div {:class "py-1"}
+                [:a {:class "text-sky-600" :href (str "/" (:destination_name d) "/" (:destination_version d))}
+                 [:span (:destination_name d)] "@" [:span (:destination_version d)]]])]]]])
+        {:body package :status 200}))
     (if (not (json? request))
       (layout context request [:div {:class "px-6 text-red-600"} (str package "#" version " not found")])
       {:status 404})))
@@ -145,6 +168,10 @@
     (catch Exception e
       (println (.getMessage e)))))
 
+;; https://github.com/HealthIntersections/fhirserver/blob/master/server/package_spider.pas
+;; https://fhir.github.io/ig-registry/package-feeds.json
+;; https://github.com/HealthIntersections/fhirserver/blob/master/server/package_spider.pas
+
 (defn ^{:http {:path "/:package" :method :put}}
   publish-package
   [context {{pkg :package} :route-params :as request}]
@@ -152,19 +179,28 @@
         package-file (str "packages/" (:name package) ".json")
         prev-package (when (.exists (io/file package-file))
                        (cheshire.core/parse-string (slurp package-file) keyword))
-        package-resource (merge prev-package (dissoc package :_attachments))]
-    (spit package-file (cheshire.core/generate-string package))
+        package-resource (update (dissoc package :_attachments) :versions merge (:versions prev-package))]
+    (spit package-file (cheshire.core/generate-string package-resource {:pretty true}))
     (pg.repo/upsert context {:table "fhir_packages.package" :resource package-resource})
+    (let [package-version (first (vals (:versions package)))
+          package-version (assoc package-version :id (str (:name package-version) "@" (:version package-version)))]
+      (pg.repo/upsert context {:table "fhir_packages.package_version" :resource package-version})
+      (doseq [[dep-name v] (:dependencies package-version)]
+        (pg.repo/upsert context {:table "fhir_packages.package_dependency"
+                                 :resource {:id (java.util.UUID/randomUUID)
+                                            :source_id (:id package-version)
+                                            :source_name (:name package-version)
+                                            :source_version (:version package-version)
+                                            :destination_name (name dep-name)
+                                            :destination_version v}})))
     (doseq [[k v] (:_attachments package)]
       (let [out-file (str "packages/" (:name package) "/" (name k))]
         (io/make-parents out-file)
         (decode-base64-to-file (:data v) out-file))))
   {:status 200})
 
+
 ;; https://marmelab.com/blog/2022/12/22/how-to-implement-web-login-in-a-private-npm-registry.html
-;; https://github.com/HealthIntersections/fhirserver/blob/master/server/package_spider.pas
-;; https://fhir.github.io/ig-registry/package-feeds.json
-;; https://github.com/HealthIntersections/fhirserver/blob/master/server/package_spider.pas
 (defn ^{:http {:path "/-/v1/login" :method :post}}
   login
   [context request]
@@ -214,6 +250,7 @@
   (system/stop-system context)
 
   (pg/migrate-up context "fhir_packages")
+  (pg/migrate-down context "fhir_packages")
 
   (pg.repo/select context {:table "fhir_packages.package"})
 
