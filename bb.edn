@@ -1,0 +1,4 @@
+{:tasks
+ {init      {:task (shell "brew install borkdude/brew/babashka && brew install tailwindcss")}
+  tw        {:task (shell "tailwindcss -i ./resources/public/app.css -o ./resources/public/app.build.css --watch")}
+  tw:build  {:task (shell "tailwindcss -i ./resources/public/app.css -o ./resources/public/app.build.css")}}}

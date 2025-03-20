@@ -1,0 +1,26 @@
+{:paths ["src" "resources"]
+ :jvm-opts ["-Djdk.attach.allowAttachSelf"]
+ :deps {org.clojure/clojure       {:mvn/version "1.12.0"}
+        http-kit/http-kit {:mvn/version "2.8.0"}
+        cheshire/cheshire      {:mvn/version "5.10.2"}
+
+        context/system         {:local/root "./libs/system"}
+        context/pg             {:local/root "./libs/pg"}
+        context/http           {:local/root "./libs/http"}
+        context/gcs            {:local/root "./libs/gcs"}
+        }
+
+ :aliases
+ {:dev
+  {:extra-paths ["dev" "test" "resources"]
+   :jvm-opts []}
+
+  :test
+  {:extra-deps {lambdaisland/kaocha {:mvn/version "1.77.1236"}}
+   :extra-paths ["test"]
+   ;;:jvm-opts   ^:replace ["-XX:-OmitStackTraceInFastThrow"]
+   :main-opts  ["-m" "kaocha.runner"]}
+
+  :run {:extra-paths ["dev"]
+        :jvm-opts    ["-XX:-OmitStackTraceInFastThrow"]
+        :main-opts   ["-m" "zd.hsm"]}}}

@@ -1,0 +1,14 @@
+@import "tailwindcss";
+@import "../../libs/http/resources/public/uui.css";
+
+@theme {
+    --font-display: "Satoshi", "sans-serif";
+}
+
+h1 {
+    @apply text-2xl/8 font-semibold text-zinc-950 sm:text-xl/8 dark:text-white;
+}
+
+h2 {
+    @apply text-lg my-2 flex items-baseline space-x-4;
+}
