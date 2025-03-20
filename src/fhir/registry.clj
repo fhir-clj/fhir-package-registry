@@ -92,7 +92,7 @@
          ["/" "Packages"]
          ["#" (:name package)])
         [:div {:class "flex items-top space-x-8"}
-         [:div {:class "p-3 w-3xl" }
+         [:div {:class "py-3 w-3xl" }
           [:h1.uui {:class "border-b py-2"} (:name package)]
           [:p {:class "mt-4 text-gray-600 text-sm w-3xl"}
            (:description package)]]
