@@ -9,7 +9,8 @@
    [uui.heroicons :as ico]
    [clojure.java.io :as io]
    [clojure.string :as str]
-   [ring.middleware.multipart-params :as multipart] )
+   [ring.middleware.multipart-params :as multipart]
+   [fhir.registry.gcs :as gcs])
   (:import
    [java.util Base64]
    [java.net URL]
@@ -53,7 +54,7 @@
 (defn ^{:http {:path "/"}}
   index
   [context request]
-  (let [packages   (pg.repo/select context {:table "fhir_packages.package"})]
+  (let [packages (pg/execute! context {:sql "select name, array_agg(distinct author) as authors, array_agg(version) as versions from fhir_packages.package group by 1"})]
     (if (not (json? request))
       (layout
        context request
@@ -71,10 +72,10 @@
             (ico/cube "size-4 text-gray-500" :outline)
             [:a {:class "py-2 font-semibold text-sky-600" :href (str "/" (:name pkg))}
              (:name pkg)]
-            [:p {:class "flex-1 text-sm text-gray-500"} (elipse (:description pkg))]
+            [:p {:class "flex-1 text-sm text-gray-500"} (first (:authors pkg))]
             (map (fn [x] [:a {:href (str "/" (:name x) "/" (:version x))
                              :class "text-sky-600 hover:bg-blue-100 font-semibold text-xs border rounded border-gray-200 px-2 py-1" }
-                         (name x)]) (keys (:versions pkg)))
+                         (name x)]) (take 5 (:versions pkg)))
             ])]])
       {:body packages
        :headers {"content-type" "application/json"}
@@ -83,7 +84,7 @@
 (defn ^{:http {:path "/:package"}}
   package
   [context {{package :package} :route-params :as request}]
-  (let [package   (pg.repo/read context {:table "fhir_packages.package" :match {:name package}})]
+  (let [package  (first (pg/execute! context {:sql ["select name, array_agg(distinct author) as authors, array_agg(version) as versions from fhir_packages.package where name = ? group by 1" package] }))]
     (if (not (json? request))
       (layout
        context request
@@ -99,19 +100,18 @@
          [:div
           [:h2.uui "Versions"]
           [:div {:class "divide-y divide-gray-300"}
-           (for [[v proj] (:versions package)]
+           (for [v (:versions package)]
              [:div {:class "py-1"}
-              [:a {:class "text-sky-600" :href (str "/" (:name proj) "/" (:version proj))} (:version proj)]])]]
-
-         ]]
+              [:a {:class "text-sky-600" :href (str "/" (:name package) "/" v)} v]])]]]]
        )
       {:body package :status 200})))
 
 (defn ^{:http {:path "/:package/:version"}}
   package-version
   [context {{package :package version :version} :route-params :as request}]
-  (if-let [package   (pg.repo/read context {:table "fhir_packages.package_version" :match {:name package :version version}})]
-    (let [deps      (pg/execute! context {:sql ["select * from fhir_packages.package_dependency where source_id = ?" (:id package)]})]
+  (if-let [package   (pg.repo/read context {:table "fhir_packages.package" :match {:name package :version version}})]
+    (let [deps      (pg/execute! context {:sql ["select * from fhir_packages.package_dependency where source_name = ? and source_version =?"
+                                                (:name package) (:version package)]})]
       (if (not (json? request))
         (layout
          context request
@@ -249,9 +249,21 @@
 
   (system/stop-system context)
 
+  (def svc (gcs/mk-service {}))
+
+  svc
+  (time
+   (->> (gcs/list-packages svc)
+        (pmap (fn [blob]
+                (let [res (gcs/read-json-blob blob)]
+                  (pg.repo/upsert context {:table "fhir_packages.package"
+                                           :resource (assoc res :id (str (:name res) "@" (:version res)))}))))))
+
   (pg/migrate-up context "fhir_packages")
+
   (pg/migrate-down context "fhir_packages")
 
   (pg.repo/select context {:table "fhir_packages.package"})
+  
 
   )

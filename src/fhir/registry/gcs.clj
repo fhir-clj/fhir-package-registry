@@ -40,7 +40,7 @@
 (defn objects
   [service ^String bucket & [prefix]]
   (let [bucket (get-bucket service bucket)
-        opts (into-array Storage$BlobListOption (if prefix [(Storage$BlobListOption/prefix prefix)] []))
+        opts (into-array Storage$BlobListOption (cond-> [] prefix  (conj (Storage$BlobListOption/prefix prefix))))
         page   (.list bucket opts)]
     (loop [page page acc (into [] (.getValues page))]
       (if-let [next-page (.getNextPage page)]
@@ -126,12 +126,32 @@
         acc))))
 
 
+(defn list-packages [svc]
+  (->> (objects svc DEFAULT_BUCKET "-")
+       (filter (fn [x]
+                 (and (str/ends-with? (.getName x) ".json")
+                      (not (str/ends-with? (.getName x) ".index.json")))))))
 
+
+(defn read-json-blob [blob]
+  (cheshire.core/parse-string (String. (.getContent blob (into-array Blob$BlobSourceOption []))) keyword) )
+
+(defn reduce-package [svc package version cb & [acc]]
+  (let [blob (get-blob svc DEFAULT_BUCKET (str "-/" package "-" version ".tgz"))]
+    (reduce-tar (blob-input-stream blob) cb acc)))
 
 (comment
   (def svc (mk-service {}))
 
   (get-bucket svc DEFAULT_BUCKET)
+
+  (time (reduce-package svc "hl7.fhir.r4b.core" "4.3.0" (fn [_ file read] (println file))))
+
+  (def pkgs (list-packages svc))
+
+  (time (read-json-blob (first pkgs)))
+
+  (cheshire.core/parse-string (String. (.getContent (first pkgs) (into-array Blob$BlobSourceOption []))))
 
   (with-open [w (output-stream svc DEFAULT_BUCKET "/-/test")]
     (.write w (.getBytes "Hello")))
@@ -172,29 +192,6 @@
                       (println (str "-/" pkg ".index.json"))
                       (with-open [w (output-stream svc DEFAULT_BUCKET (str "-/" pkg ".index.json"))]
                         (.write w (.getBytes (cheshire.core/generate-string index)))))))))))
-
-  (def files (objects svc DEFAULT_BUCKET "-"))
-
-  (def f (second files))
-  (def f (nth files 4))
-
-  (def s (.getContent f (into-array Blob$BlobSourceOption [])))
-
-  (def res2
-    )
-
-  res
-
-  res2
-
-  (.getSize f)
-
-  (bean f)
-  (type f)
-
-  (.getName (nth files 2))
-
-  (bean (second files))
 
 
 
