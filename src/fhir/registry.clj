@@ -56,33 +56,63 @@
   (when txt
     [:span (subs txt 0 (min (count txt) (or limit 100))) "..."]))
 
+
+(defn search-input [request {url :url ph :placeholder trg :target dont-push :dont-push}]
+  (let [q (:search (:query-params request))]
+    [:div {:class "grid grid-cols-1"}
+     [:input
+      {:class "border border-gray-300 col-start-1 row-start-1 block w-full rounded-xl py-1.5 pr-3 pl-10 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:pl-9 sm:text-sm/6"
+       :type "search"
+       :name "search",
+       :placeholder (or ph "Search..")
+       :autofocus true
+       :hx-get url
+       :hx-trigger "input changed delay:300ms, search",
+       :hx-target (or trg "#search-results",)
+       :hx-push-url (when-not dont-push "true")
+       :hx-indicator ".htmx-indicator"
+       :value q}]
+     (ico/magnifying-glass "size-5 pointer-events-none col-start-1 row-start-1 ml-3 size-5 self-center text-gray-400 sm:size-4")]))
+
+(defn search-packages [context request]
+  (let [q (:search (:query-params request))]
+    (pg/execute! context {:dsql {:select [:pg/list
+                                          :name
+                                          [:pg/sql "array_agg(distinct author) as authors"]
+                                          [:pg/sql "array_agg(version) as versions"]]
+                                 :from :fhir_packages.package
+                                 :where (when (and q (not (str/blank? q)))
+                                          [:ilike :name [:pg/param (str "%" (str/replace q #"\s+" "%") "%")]])
+                                 :group-by 1
+                                 :limit 100}})))
+
+(defn packages-grid [packages]
+  [:div#search-results {:class "mt-4 divide-y divide-gray-200"}
+   (for [pkg packages]
+     [:div {:class "py-0 flex items-center space-x-2"}
+      (ico/cube "size-4 text-gray-500" :outline)
+      [:a {:class "py-2 font-semibold text-sky-600" :href (str "/" (:name pkg))}
+       (:name pkg)]
+      [:p {:class "flex-1 text-sm text-gray-500"} (first (:authors pkg))]
+      (map (fn [x] [:a {:href (str "/" (:name x) "/" (:version x))
+                        :class "text-sky-600 hover:bg-blue-100 font-semibold text-xs border rounded border-gray-200 px-2 py-1" }
+                    (name x)]) (take 5 (:versions pkg)))])])
+
+(defn packages-view [context request packages]
+  (if (uui/hx-target request)
+    (uui/response (packages-grid packages))
+    (layout
+     context request
+     [:div {:class "p-3"}
+      (search-input request {:url "/"})
+      (packages-grid packages)])))
+
 (defn ^{:http {:path "/"}}
   index
   [context request]
-  (let [packages (pg/execute! context {:sql "select name, array_agg(distinct author) as authors, array_agg(version) as versions from fhir_packages.package group by 1"})]
+  (let [packages (search-packages context request)]
     (if (not (json? request))
-      (layout
-       context request
-       [:div {:class "p-3"}
-        [:div [:input {:class "box border w-full rounded border-gray-300 py-2 px-4" :placehoder "search"}]
-         [:div {:class "mt-2"}
-          [:b "FHIR Version"]
-          [:select
-           [:option "5.0.0"]
-           [:option "4.3.0"]
-           [:option "4.0.1"]
-           ]]]
-        [:div {:class "mt-4 divide-y divide-gray-200"}
-         (for [pkg packages]
-           [:div {:class "py-0 flex items-center space-x-2"}
-            (ico/cube "size-4 text-gray-500" :outline)
-            [:a {:class "py-2 font-semibold text-sky-600" :href (str "/" (:name pkg))}
-             (:name pkg)]
-            [:p {:class "flex-1 text-sm text-gray-500"} (first (:authors pkg))]
-            (map (fn [x] [:a {:href (str "/" (:name x) "/" (:version x))
-                             :class "text-sky-600 hover:bg-blue-100 font-semibold text-xs border rounded border-gray-200 px-2 py-1" }
-                         (name x)]) (take 5 (:versions pkg)))
-            ])]])
+      (packages-view context request packages)
       {:body packages
        :headers {"content-type" "application/json"}
        :status 200})))
@@ -96,19 +126,23 @@
        x))
    m))
 
+(defn format-package [{v :version :as package}]
+  (assoc (remove-nils package)
+         :_id (str (:name package) "@" (:version package))
+         :dist {:tarball (str "http://fs.get-ig.org/-/" (:name package) "-" (:version package) ".tgz")}))
+
 (defn get-package [context package-name]
   (let [versions (->> (pg.repo/select context {:table "fhir_packages.package" :match {:name package-name}})
                       (reduce (fn [acc {v :version :as package}]
-                                (assoc acc
-                                       v (assoc (remove-nils package)
-                                                :_id (str (:name package) "@" (:version package))
-                                                :dist {:tarball (str "http://fs.get-ig.org/-/" (:name package) "-" (:version package) ".tgz")})))
+                                (assoc acc v (format-package package)))
                               {}))]
     (if (empty? versions)
       nil
-      (let [latest-version (last (sort semver/semver-comparator (keys versions)))
+      (let [sorted-versions (sort semver/semver-comparator (keys versions))
+            latest-version (last sorted-versions)
             latest (get versions latest-version)]
         (assoc latest
+               :_versions (reverse sorted-versions)
                :versions versions
                :dist-tags {:latest latest-version})))))
 
@@ -144,16 +178,25 @@
            [:div
             [:h2.uui "Versions"]
             [:div {:class "divide-y divide-gray-300"}
-             (for [[v pkg] (:versions package)]
-               [:div {:class "py-1"}
-                [:a {:class "text-sky-600" :href (str "/" (:name pkg) "/" (:version pkg))} (:version pkg)]])]]]])
+             (for [v (:_versions package)]
+               (let [pkg (get-in package [:versions v])]
+                 [:div {:class "py-1"}
+                  [:a {:class "text-sky-600 flex items-center space-x-2" :href (str "/" (:name pkg) "/" (:version pkg))}
+                   (if (= v (get-in package [:dist-tags :latest]))
+                     (ico/star "size-4 text-red-400")
+                     (ico/star "size-4 text-gray-400" :outline))
+                   [:span (:version pkg)]
+                   ]]))]]]])
         {:body package :status 200}))))
 
 (defn ^{:http {:path "/:package/:version"}}
   package-version
   [context {{package :package version :version} :route-params :as request}]
   (if-let [package   (pg.repo/read context {:table "fhir_packages.package" :match {:name package :version version}})]
-    (let [deps      (pg/execute! context {:sql ["select * from fhir_packages.package_dependency where source_name = ? and source_version =?"
+    (let [package (format-package package)
+          deps      (pg/execute! context {:sql ["select * from fhir_packages.package_dependency where source_name = ? and source_version =?"
+                                                (:name package) (:version package)]})
+          dependant (pg/execute! context {:sql ["select * from fhir_packages.package_dependency where destination_name = ? and destination_version =? order by source_name, source_version"
                                                 (:name package) (:version package)]})]
       (if (not (json? request))
         (layout
@@ -165,18 +208,35 @@
             [:h1.uui {:class  "flex items-center space-x-8 border-b py-2"}
              [:span {:class "flex-1"} (:name package)  "@" (:version package)]
              (map (fn [x] [:span {:class "flex items-center"} (ico/fire "size-4") [:span x]]) (:fhirVersions package))
-             [:a {:href "" :class "border px-2 py-1 hover:bg-gray-100 rounded border-gray-300 hover:text-sky-600 text-gray-600"}
+             [:a {:href (str "http://fs.get-ig.org/-/" (:name package) "-" (:version package) ".tgz")
+                  :class "border px-2 py-1 hover:bg-gray-100 rounded border-gray-300 hover:text-sky-600 text-gray-600"}
               (ico/cloud-arrow-down "size-4")]]
             [:p {:class "mt-4 text-gray-600 text-sm"}
              (:description package)]
-            (uui/json-block package)]
+
+            [:details {:class "mt-4"}
+             [:summary "package.json"]
+             (uui/json-block package)]]
            [:div
-            [:h2.uui "Deps"]
-            [:div {:class "divide-y divide-gray-200 text-sm"}
-             (for [d deps]
-               [:div {:class "py-1"}
-                [:a {:class "text-sky-600" :href (str "/" (:destination_name d) "/" (:destination_version d))}
-                 [:span (:destination_name d)] "@" [:span (:destination_version d)]]])]]]])
+            (when (seq deps)
+              (list
+               [:h2.uui "Deps"]
+               [:div {:class "divide-y divide-gray-200 text-sm"}
+                (for [d deps]
+                  [:div {:class "py-1  flex items-center space-x-4"}
+                   (ico/arrow-right "size-4 text-gray-400")
+                   [:a {:class "text-sky-600" :href (str "/" (:destination_name d) "/" (:destination_version d))}
+                    [:span (:destination_name d)] "@" [:span (:destination_version d)]]])]))
+            (when (seq dependant)
+              (list
+               [:h2.uui "Dependents"]
+               [:div {:class "divide-y divide-gray-200 text-sm"}
+                (for [d dependant]
+                  [:div {:class "py-1 flex items-center space-x-4"}
+                   (ico/arrow-left "size-4 text-gray-400")
+                   [:a {:class "text-sky-600" :href (str "/" (:source_name d) "/" (:source_version d))}
+                    [:span (:source_name d)] "@" [:span (:source_version d)]]])]))
+            ]]])
         {:body package :status 200}))
     (if (not (json? request))
       (layout context request [:div {:class "px-6 text-red-600"} (str package "#" version " not found")])
@@ -187,7 +247,8 @@
 select d.* from fhir_packages.package_dependency d
 left join fhir_packages.package p on p.name = d.destination_name and p.version = d.destination_version
 where p.id is null
-order by d.destination_name, p.version
+order by d.source_name, d.source_version
+limit 1000
 "}))
 
 
@@ -351,6 +412,7 @@ order by d.destination_name, p.version
   (pgd/delete-pg "fhir-registry")
 
   ;; (pg/generate-migration "fhir_packages")
+   (pg/generate-migration "fhir_packages_name_idx")
 
   (def pg-config (pgd/ensure-pg "fhir-registry"))
 
@@ -358,14 +420,16 @@ order by d.destination_name, p.version
 
   (system/stop-system context)
 
-  (pg/migrate-up context "fhir_packages")
-
-  (pg/migrate-down context "fhir_packages")
+  (pg/migrate-up context "fhir_packages_name_idx")
+  (pg/migrate-down context "fhir_packages_name_idx")
 
   (pg.repo/select context {:table "fhir_packages.package"})
   (pg.repo/select context {:table "fhir_packages.package_dependency"})
 
   (pg/execute! context {:sql "truncate fhir_packages.package_dependency"})
+
+
+  (pg/execute! context {:sql"select count(*) from fhir_packages.package"})
 
   (re-index context)
   (gcs/re-index context)
