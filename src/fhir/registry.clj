@@ -10,7 +10,9 @@
    [clojure.java.io :as io]
    [clojure.string :as str]
    [ring.middleware.multipart-params :as multipart]
-   [fhir.registry.gcs :as gcs])
+   [clojure.walk]
+   [fhir.registry.gcs :as gcs]
+   [fhir.registry.semver :as semver])
   (:import
    [java.util Base64]
    [java.net URL]
@@ -61,10 +63,11 @@
        [:div {:class "p-3"}
         [:div [:input {:class "box border w-full rounded border-gray-300 py-2 px-4" :placehoder "search"}]
          [:div {:class "mt-2"}
+          [:b "FHIR Version"]
           [:select
-           [:option "R4 - 4.0.1"]
-           [:option "R4b - 4.0.1"]
-           [:option "R5 - 4.0.1"]
+           [:option "5.0.0"]
+           [:option "4.3.0"]
+           [:option "4.0.1"]
            ]]]
         [:div {:class "mt-4 divide-y divide-gray-200"}
          (for [pkg packages]
@@ -81,30 +84,67 @@
        :headers {"content-type" "application/json"}
        :status 200})))
 
+
+(defn remove-nils [m]
+  (clojure.walk/postwalk
+   (fn [x]
+     (if (map? x)
+       (into {} (filter (fn [[_ v]] (some? v)) x))
+       x))
+   m))
+
+(defn get-package [context package-name]
+  (let [versions (->> (pg.repo/select context {:table "fhir_packages.package" :match {:name package-name}})
+                      (reduce (fn [acc {v :version :as package}]
+                                (assoc acc
+                                       v (assoc (remove-nils package)
+                                                :_id (str (:name package) "@" (:version package))
+                                                :dist {:tarball (str "http://fs.get-ig.org/-/" (:name package) "-" (:version package) ".tgz")})))
+                              {}))]
+    (if (empty? versions)
+      nil
+      (let [latest-version (last (sort semver/semver-comparator (keys versions)))
+            latest (get versions latest-version)]
+        (assoc latest
+               :versions versions
+               :dist-tags {:latest latest-version})))))
+
+
+(comment
+
+  (get-package context "hl7.fhir.us.core")
+  (get-package context "hl7.fhir.r4.core")
+
+  )
+
 (defn ^{:http {:path "/:package"}}
   package
-  [context {{package :package} :route-params :as request}]
-  (let [package  (first (pg/execute! context {:sql ["select name, array_agg(distinct author) as authors, array_agg(version) as versions from fhir_packages.package where name = ? group by 1" package] }))]
-    (if (not (json? request))
-      (layout
-       context request
-       [:div {:class "p-3"}
-        (uui/breadcramp
-         ["/" "Packages"]
-         ["#" (:name package)])
-        [:div {:class "flex items-top space-x-8"}
-         [:div {:class "py-3 w-3xl" }
-          [:h1.uui {:class "border-b py-2"} (:name package)]
-          [:p {:class "mt-4 text-gray-600 text-sm w-3xl"}
-           (:description package)]]
-         [:div
-          [:h2.uui "Versions"]
-          [:div {:class "divide-y divide-gray-300"}
-           (for [v (:versions package)]
-             [:div {:class "py-1"}
-              [:a {:class "text-sky-600" :href (str "/" (:name package) "/" v)} v]])]]]]
-       )
-      {:body package :status 200})))
+  [context {{package-name :package} :route-params :as request}]
+  (let [package  (get-package context package-name)]
+    (if-not package
+      {:status 404}
+      (if (not (json? request))
+        (layout
+         context request
+         [:div {:class "p-3"}
+          (uui/breadcramp
+           ["/" "Packages"]
+           ["#" (:name package)])
+          [:div {:class "flex items-top space-x-8"}
+           [:div {:class "py-3 w-3xl" }
+            [:h1.uui {:class "border-b py-2"} (:name package)]
+            [:p {:class "mt-4 text-gray-600 text-sm w-3xl"}
+             (:description package)]
+            [:details
+             [:summary "package.json"]
+             (uui/json-block package)]]
+           [:div
+            [:h2.uui "Versions"]
+            [:div {:class "divide-y divide-gray-300"}
+             (for [[v pkg] (:versions package)]
+               [:div {:class "py-1"}
+                [:a {:class "text-sky-600" :href (str "/" (:name pkg) "/" (:version pkg))} (:version pkg)]])]]]])
+        {:body package :status 200}))))
 
 (defn ^{:http {:path "/:package/:version"}}
   package-version
@@ -264,6 +304,5 @@
   (pg/migrate-down context "fhir_packages")
 
   (pg.repo/select context {:table "fhir_packages.package"})
-  
 
   )
