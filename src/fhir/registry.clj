@@ -12,6 +12,8 @@
    [ring.middleware.multipart-params :as multipart]
    [clojure.walk]
    [fhir.registry.gcs :as gcs]
+   [fhir.registry.legacy]
+   [org.httpkit.client]
    [fhir.registry.semver :as semver])
   (:import
    [java.util Base64]
@@ -41,8 +43,9 @@
     [:div {:class "px-10 flex items-center space-x-4 border-b border-gray-300"}
      [:b "FHIR Packages"]
      [:a {:href "/"   :class "text-sm px-2 py-3"} "Packages"]
-     [:a {:href "/canonicals" :class "text-sm px-2 py-3"}"Canonicals"]
-     [:a {:href "/timeline"   :class "text-sm px-2 py-3"}"Timeline"]
+     [:a {:href "/canonicals" :class "text-sm px-2 py-3"} "Canonicals"]
+     [:a {:href "/timeline"   :class "text-sm px-2 py-3"} "Logs"]
+     [:a {:href "/problems"   :class "text-sm px-2 py-3"} "Problems"]
      [:div {:class "flex-1"}]
      ]
     [:div {:class "p-3"}
@@ -179,6 +182,33 @@
       (layout context request [:div {:class "px-6 text-red-600"} (str package "#" version " not found")])
       {:status 404})))
 
+(defn get-broken-deps [context]
+  (pg/execute! context {:sql "
+select d.* from fhir_packages.package_dependency d
+left join fhir_packages.package p on p.name = d.destination_name and p.version = d.destination_version
+where p.id is null
+order by d.destination_name, p.version
+"}))
+
+
+(defn ^{:http {:path "/problems"}}
+  problems
+  [context request]
+  (let [broken-deps (get-broken-deps context)]
+    (layout
+     context request
+     [:div {:class "p-3" }
+      [:h1.uui "Broken package deps"]
+      [:table.uui {:class "mt-4 text-xs"}
+       [:tbody
+        (for [dep broken-deps]
+          [:tr {:class "border-b border-gray-200"}
+           [:td [:a {:class "text-sky-600"
+                     :href (str "/" (:source_name dep) "/" (:source_version dep))}
+                 (:source_name dep) "@" (:source_version dep)]]
+           [:td {:class "py-1 text-gray-600"} "->"]
+           [:td {:class "py-1 text-red-600"} (:destination_name dep) "@" (:destination_version dep)]])]]])))
+
 (defn reduce-tar [^InputStream input-stream cb & [acc]]
   (with-open [^GzipCompressorInputStream gzip-compressor-input-stream (GzipCompressorInputStream. input-stream)
               ^TarArchiveInputStream tar-archive-input-stream (TarArchiveInputStream. gzip-compressor-input-stream)]
@@ -269,9 +299,48 @@
   {})
 
 (def default-config
-  {:services ["pg" "pg.repo" "http" "uui" "fhir.registry"]
+  {:services ["pg" "pg.repo" "http" "uui" "fhir.registry" "fhir.registry.gcs"]
    :http {:port 3333
           :max-body 108388608}})
+
+(defn load-from-url-pacakge2 [context file-name]
+  (time
+   (with-open [inps (.openStream (java.net.URL. (str "http://packages2.fhir.org/web/" file-name)))
+               outs  (fhir.registry.gcs/output-stream context fhir.registry.gcs/DEFAULT_BUCKET (str "-/" file-name))]
+     (io/copy inps outs))))
+
+(defn load-from-simplifier [context pkg-name ]
+  (if-let [pkg (fhir.registry.legacy/package-info pkg-name)]
+    (with-open [inps (.openStream (java.net.URL. (:tarball (:dist pkg))))
+                outs  (fhir.registry.gcs/output-stream context fhir.registry.gcs/DEFAULT_BUCKET (str "-/" (:name pkg) "-" (:version pkg) ".tgz"))]
+      (io/copy inps outs))
+    (throw (Exception. (str "No " pkg-name)))))
+
+(defn load-from-simplifier-to-file [pkg-name file-name]
+  (if-let [pkg (fhir.registry.legacy/package-info pkg-name)]
+    (let [inps (.openStream (java.net.URL. (:tarball (:dist pkg))))]
+      (with-open [outps (io/output-stream (io/file file-name))]
+        (io/copy inps outps)))
+    (throw (Exception. (str "No " pkg-name)))))
+
+(defn re-index [context]
+  (time
+   (do
+     (pg/execute! context {:sql "truncate fhir_packages.package"})
+     (pg/execute! context {:sql "truncate fhir_packages.package_dependency"})
+     (->> (gcs/list-packages context)
+          (pmap (fn [blob]
+                  (let [res (gcs/read-json-blob blob)]
+                    (pg.repo/upsert context {:table "fhir_packages.package"
+                                             :resource (assoc res :id (str (:name res) "@" (:version res)))})
+                    (doseq [[d v] (:dependencies res)]
+                      (pg.repo/upsert context {:table "fhir_packages.package_dependency"
+                                               :resource {:id (str (:name res) "@" (:version res) "->" (name d) "@" v)
+                                                          :source_name (:name res)
+                                                          :source_version (:version res)
+                                                          :destination_name (name d)
+                                                          :destination_version v}})))))))))
+
 
 (comment
   (require '[pg.docker :as pgd])
@@ -289,20 +358,39 @@
 
   (system/stop-system context)
 
-  (def svc (gcs/mk-service {}))
-
-  svc
-  (time
-   (->> (gcs/list-packages svc)
-        (pmap (fn [blob]
-                (let [res (gcs/read-json-blob blob)]
-                  (pg.repo/upsert context {:table "fhir_packages.package"
-                                           :resource (assoc res :id (str (:name res) "@" (:version res)))}))))))
-
   (pg/migrate-up context "fhir_packages")
 
   (pg/migrate-down context "fhir_packages")
 
   (pg.repo/select context {:table "fhir_packages.package"})
+  (pg.repo/select context {:table "fhir_packages.package_dependency"})
+
+  (pg/execute! context {:sql "truncate fhir_packages.package_dependency"})
+
+  (re-index context)
+  (gcs/re-index context)
+
+  (fhir.registry.legacy/package-info "hl7.fhir.uv.sdc@3.0.0")
+
+  (load-from-simplifier svc "hl7.fhir.uv.sdc@3.0.0")
+  (load-from-simplifier svc "hl7.fhir.uv.smart-app-launch@2.1.0")
+  (load-from-simplifier svc "hl7.terminology.r4@5.0.0")
+  (load-from-simplifier svc "ihe.formatcode.fhir@1.1.0")
+  (load-from-simplifier svc "us.cdc.phinvads@0.12.0")
+  (load-from-simplifier svc "us.nlm.vsac@0.9.0")
+  (load-from-simplifier svc "hl7.fhir.r4.examples@4.0.1")
+
+  (doseq [pkg (keys (group-by (fn [x] (str (:destination_name x) "@" (:destination_version x))) (get-broken-deps context)))]
+    (try (load-from-simplifier context pkg)
+         (catch Exception e
+           (println (.getMessage e)))))
+
+  (->> (str/split (:body @(org.httpkit.client/get "http://packages2.fhir.org/web/")) #"\<a href=\"")
+       (mapv (fn [x]
+               (let [res (first (str/split x #"\"" 2))]
+                 (when (str/ends-with? res ".tgz")
+                   res))))
+       (filter identity)
+       (mapv (fn [x] (load-from-url-pacakge2 context x))))
 
   )

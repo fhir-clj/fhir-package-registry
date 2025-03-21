@@ -19,27 +19,27 @@
            [java.nio.channels Channels]
            [java.io BufferedReader InputStream InputStreamReader BufferedWriter OutputStreamWriter]))
 
+(system/defmanifest
+  {:description "google storage for FHIR packages"})
 
 (set! *warn-on-reflection* false)
 
 (defn gz-stream [^InputStream str]
   (GZIPInputStream. str))
 
-
 (defn mk-service [cfg]
   (.getService (StorageOptions/getDefaultInstance)))
 
-(defn get-bucket [service bucket-name]
-  (.get service ^String bucket-name ^"[Lcom.google.cloud.storage.Storage$BucketGetOption;" (into-array Storage$BucketGetOption [])))
+(defn get-svc [context]
+  (system/get-system-state context [:svc]))
 
-(defn package-file-name [package version file]
-  (str "p/" package "/" version "/" file))
-
-
+(defn get-bucket [context bucket-name]
+  (let [service (get-svc context)]
+    (.get service ^String bucket-name ^"[Lcom.google.cloud.storage.Storage$BucketGetOption;" (into-array Storage$BucketGetOption []))))
 
 (defn objects
-  [service ^String bucket & [prefix]]
-  (let [bucket (get-bucket service bucket)
+  [context ^String bucket & [prefix]]
+  (let [bucket (get-bucket context bucket)
         opts (into-array Storage$BlobListOption (cond-> [] prefix  (conj (Storage$BlobListOption/prefix prefix))))
         page   (.list bucket opts)]
     (loop [page page acc (into [] (.getValues page))]
@@ -60,55 +60,27 @@
       input-stream)))
 
 (defn get-blob
-  [service bucket file]
-  (let [bid (BlobId/of bucket file)
+  [context bucket file]
+  (let [service (get-svc context)
+        bid (BlobId/of bucket file)
         blb (.get service bid (into-array Storage$BlobGetOption []))]
     (assert blb (str "FILE NOT EXISTS:" bucket "/" file))
     blb))
 
-(defn input-stream [service bucket file]
-  (let [blob (get-blob service bucket file)]
+(defn input-stream [context bucket file]
+  (let [service (get-svc context)
+        blob (get-blob service bucket file)]
     (Channels/newInputStream (.reader blob (into-array Blob$BlobSourceOption [])))))
 
 
-(defn output-stream [service bucket ^String file  & [{gz :gzip}]]
-  (let [bid (BlobId/of bucket file)
+(defn output-stream [context bucket ^String file  & [{gz :gzip}]]
+  (let [service (get-svc context)
+        bid (BlobId/of bucket file)
         binfo (BlobInfo/newBuilder bid)
         ch (.writer ^Storage service ^BlobInfo (.build binfo) (into-array Storage$BlobWriteOption []))]
     (Channels/newOutputStream ch)))
 
-
-;; (defn write-blob [storage bucket file cb]
-;;   (with-open
-;;     [os (blob-ndjson-writer storage bucket file)
-;;      outz (GZIPOutputStream. os)
-;;      w (BufferedWriter. (OutputStreamWriter. outz))]
-;;     (cb w)))
-
-;; (defn package-file [package version file]
-;;   (let [b (get-blob (str "p/" package "/" version "/" file))]
-;;     (assert b (str "no file " b))
-;;     b))
-
-
-;; (defn text-blob [storage bucket file content]
-;;   (let [bid (BlobId/of bucket file)
-;;         binfo (BlobInfo/newBuilder bid)]
-;;     (with-open [ch (.writer ^Storage storage ^BlobInfo (.build binfo) (into-array Storage$BlobWriteOption []))
-;;                 os (Channels/newOutputStream ch)
-;;                 w (BufferedWriter. (OutputStreamWriter. os))]
-;;       (.write w content))))
-
-;; (defn write-ndjson-gz [filename cb]
-;;   (with-open [writer (-> filename
-;;                          (io/output-stream)
-;;                          (GZIPOutputStream.)
-;;                          (io/writer))]
-;;     (cb writer)))
-
-
 (def DEFAULT_BUCKET "fs.get-ig.org")
-
 
 (defn reduce-tar [^InputStream input-stream cb & [acc]]
   (with-open [^GzipCompressorInputStream gzip-compressor-input-stream (GzipCompressorInputStream. input-stream)
@@ -126,72 +98,70 @@
         acc))))
 
 
-(defn list-packages [svc]
-  (->> (objects svc DEFAULT_BUCKET "-")
+(defn list-packages [context]
+  (->> (objects context DEFAULT_BUCKET "-")
        (filter (fn [x]
                  (and (str/ends-with? (.getName x) ".json")
                       (not (str/ends-with? (.getName x) ".index.json")))))))
 
-
 (defn read-json-blob [blob]
   (cheshire.core/parse-string (String. (.getContent blob (into-array Blob$BlobSourceOption []))) keyword) )
 
-(defn reduce-package [svc package version cb & [acc]]
-  (let [blob (get-blob svc DEFAULT_BUCKET (str "-/" package "-" version ".tgz"))]
+(defn reduce-package [context package version cb & [acc]]
+  (let [blob (get-blob (get-svc context) DEFAULT_BUCKET (str "-/" package "-" version ".tgz"))]
     (reduce-tar (blob-input-stream blob) cb acc)))
 
+(defn re-index [context]
+  (let [svc (get-svc context)
+        idx (->> (objects context DEFAULT_BUCKET "-") (sort-by #(.getName %))
+                 (reduce (fn [acc o]
+                           (let [file-name (last (str/split (.getName o) #"/"))
+                                 _ (println file-name)
+                                 ext (last (str/split file-name #"\."))
+                                 pkg-name (str/replace file-name #"(\.tgz|\.json)$" "")]
+                             (if (and (contains? #{"json" "tgz"} ext) (not (str/ends-with? file-name ".index.json")))
+                               (assoc-in acc [pkg-name ext] o)
+                               acc)))
+                         {}))]
+    (time
+     (->> idx
+          (mapv (fn [[pkg {json "json" tgz "tgz"}]]
+                  (when (and tgz (not json))
+                    (println :tgz tgz)
+                    (try
+                      (let [res (time (reduce-tar (blob-input-stream tgz) (fn [acc file read]
+                                                                            (cond (= "package.json" file)
+                                                                                  (assoc acc :package (read true))
+                                                                                  (= ".index.json" file)
+                                                                                  (assoc acc :index (read true))
+                                                                                  :else acc))))]
+                        (when-let [package (:package res)]
+                          (println :package (str "-/" pkg ".json"))
+                          (with-open [w (output-stream context DEFAULT_BUCKET (str "-/" pkg ".json"))]
+                            (.write w (.getBytes (cheshire.core/generate-string package)))))
+                        (when-let [index (:index res)]
+                          (println :index (str "-/" pkg ".index.json"))
+                          (with-open [w (output-stream context DEFAULT_BUCKET (str "-/" pkg ".index.json"))]
+                            (.write w (.getBytes (cheshire.core/generate-string index))))))
+                      (catch Exception e
+                        (println ::re-index-error (str pkg (.getMessage e))))))))))
+    :ok))
+
+(system/defstart [context cfg]
+  (system/set-system-state context [:svc] (mk-service cfg))
+  {})
+
 (comment
-  (def svc (mk-service {}))
+  (def context (system/start-system {:services ["fhir.registry.gcs"]}))
 
-  (get-bucket svc DEFAULT_BUCKET)
+  (get-bucket context DEFAULT_BUCKET)
+  (objects context DEFAULT_BUCKET)
 
-  (time (reduce-package svc "hl7.fhir.r4b.core" "4.3.0" (fn [_ file read] (println file))))
+  (time (reduce-package context "hl7.fhir.r4b.core" "4.3.0" (fn [_ file read] (println file))))
 
-  (def pkgs (list-packages svc))
+  (def pkgs (list-packages context))
+  (re-index context)
 
-  (time (read-json-blob (first pkgs)))
-
-  (cheshire.core/parse-string (String. (.getContent (first pkgs) (into-array Blob$BlobSourceOption []))))
-
-  (with-open [w (output-stream svc DEFAULT_BUCKET "/-/test")]
-    (.write w (.getBytes "Hello")))
-
-  (with-open [i (input-stream svc DEFAULT_BUCKET "/-/test")]
-    (slurp i))
-
-  (str/replace "fiel.tgz" #"(\.tgz|\.json)$" "")
-
-  (def idx
-    (->> (objects svc DEFAULT_BUCKET "-") (sort-by #(.getName %))
-         (reduce (fn [acc o]
-                   (let [file-name (last (str/split (.getName o) #"/"))
-                         _ (println file-name)
-                         ext (last (str/split file-name #"\."))
-                         pkg-name (str/replace file-name #"(\.tgz|\.json)$" "")]
-                     (if (and (contains? #{"json" "tgz"} ext) (not (str/ends-with? file-name ".index.json")))
-                       (assoc-in acc [pkg-name ext] o)
-                       acc)))
-                 {})))
-
-  (time
-   (->> idx
-        (mapv (fn [[pkg {json "json" tgz "tgz"}]]
-                (println pkg)
-                (when (and tgz (not json))
-                  (let [res (time (reduce-tar (blob-input-stream tgz) (fn [acc file read]
-                                                                      (cond (= "package.json" file)
-                                                                            (assoc acc :package (read true))
-                                                                            (= ".index.json" file)
-                                                                            (assoc acc :index (read true))
-                                                                            :else acc))))]
-                    (when-let [package (:package res)]
-                      (println (str "-/" pkg ".json"))
-                      (with-open [w (output-stream svc DEFAULT_BUCKET (str "-/" pkg ".json"))]
-                        (.write w (.getBytes (cheshire.core/generate-string package)))))
-                    (when-let [index (:index res)]
-                      (println (str "-/" pkg ".index.json"))
-                      (with-open [w (output-stream svc DEFAULT_BUCKET (str "-/" pkg ".index.json"))]
-                        (.write w (.getBytes (cheshire.core/generate-string index)))))))))))
 
 
 
