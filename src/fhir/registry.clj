@@ -197,6 +197,7 @@
 
 ;; TODO: uui rpc guard with meta on function
 ;; TODO: dsql escape :cammelCase
+;; TODO: bug with - in package name :(
 (defn package-canonicals [context request opts]
   (let [canonicals (pg/execute! context {:dsql {:select [:pg/list :id :url :version :_filename [:pg/sql "\"resourceType\""]]
                                                 :from :fhir_packages.canonical
@@ -206,7 +207,7 @@
                                                 :limit 1000
                                                 :order-by :url}})]
     [:div {:class "mt-4"}
-     [:table.uui {:class "text-xs"}
+     [:table.uui {:class "text-sm"}
       [:thead [:tr [:th "resourceType"] [:th "file"]]]
       [:tbody
        (for [c canonicals]
