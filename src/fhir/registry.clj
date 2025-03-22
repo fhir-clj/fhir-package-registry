@@ -77,7 +77,9 @@
     (pg/execute! context {:dsql {:select [:pg/list
                                           :name
                                           [:pg/sql "array_agg(distinct author) as authors"]
-                                          [:pg/sql "array_agg(version) as versions"]]
+                                          [:pg/sql "array_agg(version) as versions"]
+                                          [:pg/sql "array_agg(distinct \"fhirVersions\"[1]) as \"fhirVersions\""]
+                                          ]
                                  :from :fhir_packages.package
                                  :where (when (and q (not (str/blank? q)))
                                           [:ilike :name [:pg/param (str "%" (str/replace q #"\s+" "%") "%")]])
@@ -86,15 +88,20 @@
 
 (defn packages-grid [packages]
   [:div#search-results {:class "mt-4 divide-y divide-gray-200"}
-   (for [pkg packages]
-     [:div {:class "py-0 flex items-center space-x-2"}
-      (ico/cube "size-4 text-gray-500" :outline)
-      [:a {:class "py-2 font-semibold text-sky-600" :href (str "/" (:name pkg))}
-       (:name pkg)]
-      [:p {:class "flex-1 text-sm text-gray-500"} (first (:authors pkg))]
-      (map (fn [x] [:a {:href (str "/" (:name x) "/" (:version x))
-                        :class "text-sky-600 hover:bg-blue-100 font-semibold text-xs border rounded border-gray-200 px-2 py-1" }
-                    (name x)]) (take 5 (:versions pkg)))])])
+   [:table.uui {:class "text-sm"}
+    [:thead
+     [:tr [:th "package"] [:th "latest"]  [:th "author"] [:th "FHIR"] [:th "Versions"]]]
+    [:tbody
+     (for [pkg packages]
+       [:tr {:class ""}
+        [:td
+         (ico/cube "size-4 text-orange-500/50 inline mr-2")
+         [:a {:class "py-2 text-sky-600" :href (str "/" (:name pkg))} (:name pkg)]]
+        [:td (last (sort semver/semver-comparator (:versions pkg)))]
+        [:td {:class "text-sm text-gray-500"} (first (:authors pkg))]
+        [:td {:class "text-xs text-gray-500"} (str/join ", " (filter identity (:fhirVersions pkg)))]
+        [:td {:class "text-xs text-gray-500"} (count (:versions pkg))]
+        ])]]])
 
 (defn packages-view [context request packages]
   (if (uui/hx-target request)
@@ -102,7 +109,7 @@
     (layout
      context request
      [:div {:class "p-3"}
-      (search-input request {:url "/"})
+      (search-input request {:url "/" :placeholder "Search with prefix: hl7 fhir r5"})
       (packages-grid packages)])))
 
 (defn ^{:http {:path "/"}}
@@ -250,6 +257,24 @@ limit 1000
 "}))
 
 
+(defn ^{:http {:path "/canonicals"}}
+  canonicals
+  [context request]
+  (let [broken-deps (get-broken-deps context)]
+    (layout
+     context request
+     [:div {:class "p-3" }
+      [:h1.uui "TBD"]])))
+
+(defn ^{:http {:path "/timeline"}}
+  timeline
+  [context request]
+  (let [broken-deps (get-broken-deps context)]
+    (layout
+     context request
+     [:div {:class "p-3" }
+      [:h1.uui "TBD"]])))
+
 (defn ^{:http {:path "/problems"}}
   problems
   [context request]
@@ -350,17 +375,6 @@ limit 1000
   {:status 200
    :body {}})
 
-(system/defstart
-  [context config]
-  (pg/migrate-prepare context)
-  (pg/migrate-up context)
-  (http/register-ns-endpoints context current-ns)
-  {})
-
-(def default-config
-  {:services ["pg" "pg.repo" "http" "uui" "fhir.registry" "fhir.registry.gcs"]
-   :http {:port 3333
-          :max-body 108388608}})
 
 (defn load-from-url-pacakge2 [context file-name]
   (time
@@ -399,6 +413,19 @@ limit 1000
                                                           :source_version (:version res)
                                                           :destination_name (name d)
                                                           :destination_version v}})))))))))
+
+
+(system/defstart
+  [context config]
+  (pg/migrate-prepare context)
+  (pg/migrate-up context)
+  (http/register-ns-endpoints context current-ns)
+  {})
+
+(def default-config
+  {:services ["pg" "pg.repo" "http" "uui" "fhir.registry" "fhir.registry.gcs"]
+   :http {:port 3333
+          :max-body 108388608}})
 
 ;; TODO: add envs to system
 (defn main [& args]
