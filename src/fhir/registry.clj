@@ -195,6 +195,26 @@
                    ]]))]]]])
         {:body package :status 200}))))
 
+;; TODO: uui rpc guard with meta on function
+;; TODO: dsql escape :cammelCase
+(defn package-canonicals [context request opts]
+  (let [canonicals (pg/execute! context {:dsql {:select [:pg/list :id :url :version :_filename [:pg/sql "\"resourceType\""]]
+                                                :from :fhir_packages.canonical
+                                                :where [:and
+                                                        [:= :package_name (:name opts)]
+                                                        [:= :package_version (:version opts)]]
+                                                :limit 1000
+                                                :order-by :url}})]
+    [:div {:class "mt-4"}
+     [:table.uui {:class "text-xs"}
+      [:thead [:tr [:th "resourceType"] [:th "file"]]]
+      [:tbody
+       (for [c canonicals]
+         [:tr
+          [:td (:resourceType c)]
+          [:td [:a {:title (str (:url c) "|" (:version c))
+                    :href (str "/canonicals/" (:id c)) :class "text-sky-600"} (:_filename c)] ]])]]]))
+
 (defn ^{:http {:path "/:package/:version"}}
   package-version
   [context {{package :package version :version} :route-params :as request}]
@@ -222,7 +242,15 @@
 
             [:details {:class "mt-4"}
              [:summary "package.json"]
-             (uui/json-block package)]]
+             (uui/json-block package)]
+
+            [:div
+             {:class "mt-4"
+              :hx-get (uui/rpc #'package-canonicals (select-keys package [:name :version]))
+              :hx-trigger "load"
+              :hx-swap "outerHTML"}
+             [:div {:class "text-gray-400 py-2"} "Loading content..."]]]
+
            [:div
             (when (seq deps)
               (list
@@ -313,7 +341,11 @@ limit 1000
     (layout
      context request
      [:div {:class "p-3" }
-      (uui/breadcramp ["/canonicals" "Canonicals"] ["#" (:url canonical)])
+      (uui/breadcramp
+       ["/" "Packages"]
+       [(str "/" (:package_name canonical) "/" (:package_version canonical))
+        (str (:package_name canonical) "@" (:package_version canonical))]
+       ["#" (:url canonical)])
       [:div {:class "mt-4"}
        (uui/json-block canonical)]])))
 
