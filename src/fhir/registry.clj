@@ -400,6 +400,11 @@ limit 1000
                                                           :destination_name (name d)
                                                           :destination_version v}})))))))))
 
+;; TODO: add envs to system
+(defn main [& args]
+  (def pg-config {:db "registry" :user "registry" :port 5432 :host "localhost" :password (System/getenv "PG_PASSWORD")})
+  (def context (system/start-system (assoc default-config :pg pg-config))))
+
 (comment
   (require '[pg.docker :as pgd])
   (require '[system.dev :as dev])
