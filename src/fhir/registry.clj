@@ -259,15 +259,27 @@ limit 1000
 
 (defn search-canonicals [context request]
   (let [q (:search (:query-params request))]
+    #_(println
+     (str/join "\n"
+               (pg/execute! context {:dsql {:explain {:analyze true}
+                                            :select [:pg/list
+                                                     :id :url :version :package_name :package_version :_filename
+                                                     [:pg/sql "resource->>'resourceType' as resourcetype"]]
+                                            :from :fhir_packages.canonical
+                                            ;; :order-by [:pg/list :url :version]
+                                            :where (when (and q (not (str/blank? q)))
+                                                     [:ilike [:pg/sql "url || '|' || coalesce(version,package_version)"]
+                                                      [:pg/param (str "%" (str/replace q #"\s+" "%") "%")]])
+                                            :limit 300}})))
     (pg/execute! context {:dsql {:select [:pg/list
                                           :id :url :version :package_name :package_version :_filename
                                           [:pg/sql "resource->>'resourceType' as resourcetype"]]
                                  :from :fhir_packages.canonical
-                                 :order-by [:pg/list :url :version]
+                                 ;; :order-by [:pg/list :url :version]
                                  :where (when (and q (not (str/blank? q)))
-                                          [:ilike :url [:pg/param (str "%" (str/replace q #"\s+" "%") "%")]])
+                                          [:ilike [:pg/sql "url || '|' || coalesce(version,package_version)"]
+                                           [:pg/param (str "%" (str/replace q #"\s+" "%") "%")]])
                                  :limit 300}})))
-
 
 (defn canonicals-grid [context request canonicals]
   [:div#search-results {:class "mt-4"}
@@ -523,6 +535,17 @@ limit 1000
 
   (def context (system/start-system (assoc default-config :pg pg-config
                                            :fhir.registry.gcs {:service-account "./sa.json"})))
+
+  (def context (system/start-system {:pg pg-config :services ["pg"]}))
+
+  (pg/execute! context {:sql "vacuum full fhir_packages.canonical"})
+  (pg/execute! context {:sql "drop table _tmp"})
+
+  (pg/execute! context {:sql "create table _tmp as select * from fhir_packages.canonical limit 10000"})
+  (pg/execute! context {:sql "truncate table fhir_packages.canonical"})
+  (pg/execute! context {:sql "insert into fhir_packages.canonical select * from _tmp"})
+
+  (pg/execute! context {:sql "select count(*) from fhir_packages.canonical"})
 
   (system/stop-system context)
 
