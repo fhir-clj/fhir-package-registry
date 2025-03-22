@@ -402,7 +402,7 @@ limit 1000
 
 ;; TODO: add envs to system
 (defn main [& args]
-  (def pg-config {:db "registry" :user "registry" :port 5432 :host "localhost" :password (System/getenv "PG_PASSWORD")})
+  (def pg-config {:database "registry" :user "registry" :port 5432 :host "localhost" :password (System/getenv "PG_PASSWORD")})
   (def context (system/start-system (assoc default-config :pg pg-config))))
 
 (comment
