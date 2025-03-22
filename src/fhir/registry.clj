@@ -48,9 +48,7 @@
      [:a {:href "/problems"   :class "text-sm px-2 py-3"} "Problems"]
      [:div {:class "flex-1"}]
      ]
-    [:div {:class "p-3"}
-
-     content]]))
+    [:div {:class "py-3 px-6"} content]]))
 
 (defn elipse [txt & [limit]]
   (when txt
@@ -401,7 +399,6 @@ limit 1000
                                                           :source_version (:version res)
                                                           :destination_name (name d)
                                                           :destination_version v}})))))))))
-
 
 (comment
   (require '[pg.docker :as pgd])
