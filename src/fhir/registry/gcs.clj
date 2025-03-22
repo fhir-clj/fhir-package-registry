@@ -2,7 +2,8 @@
   (:require [clojure.string :as str]
             [system]
             [clojure.java.io :as io]
-            [cheshire.core])
+            [cheshire.core]
+            [fhir.registry.ndjson])
   (:import [com.google.cloud.storage StorageOptions
             BlobInfo BlobId
             Storage Bucket Blob Storage$BucketGetOption
@@ -62,6 +63,17 @@
         (recur next-page (into acc (.getValues page)))
         (into acc (.getValues page))))))
 
+(defn lazy-page [page]
+  (if-let [next-page (.getNextPage page)]
+    (lazy-seq (concat (.getValues page) (lazy-page next-page)))
+    (.getValues page)))
+
+(defn lazy-objects [context ^String bucket & [prefix]]
+  (let [bucket (get-bucket context bucket)
+        opts (into-array Storage$BlobListOption (cond-> [] prefix  (conj (Storage$BlobListOption/prefix prefix))))
+        page   (.list bucket opts)]
+    (lazy-page page)))
+
 (defn blob-content [^Blob blob & [{json :json}]]
   (let [res (String. (.getContent blob (into-array Blob$BlobSourceOption [])))]
     (if json
@@ -82,11 +94,12 @@
     (assert blb (str "FILE NOT EXISTS:" bucket "/" file))
     blb))
 
-(defn input-stream [context bucket file]
-  (let [service (get-svc context)
-        blob (get-blob service bucket file)]
-    (Channels/newInputStream (.reader blob (into-array Blob$BlobSourceOption [])))))
-
+(defn input-stream [context bucket file & [gzip]]
+  (let [blob (get-blob context bucket file)
+        inps (Channels/newInputStream (.reader blob (into-array Blob$BlobSourceOption [])))]
+    (if gzip
+      (gz-stream inps)
+      inps)))
 
 (defn output-stream [context bucket ^String file  & [{gz :gzip}]]
   (let [service (get-svc context)
@@ -118,6 +131,10 @@
        (filter (fn [x]
                  (and (str/ends-with? (.getName x) ".json")
                       (not (str/ends-with? (.getName x) ".index.json")))))))
+
+(defn list-tgz [context]
+  (->> (objects context DEFAULT_BUCKET "-")
+       (filter (fn [x] (str/ends-with? (.getName x) ".tgz")))))
 
 (defn read-json-blob [blob]
   (cheshire.core/parse-string (String. (.getContent blob (into-array Blob$BlobSourceOption []))) keyword) )
@@ -162,6 +179,30 @@
                         (println ::re-index-error (str pkg (.getMessage e))))))))))
     :ok))
 
+(defn index-ndjson [context filename]
+    (time
+     (let [inps (input-stream context DEFAULT_BUCKET filename)
+           out-file (str/replace filename #"\.tgz" ".ndjson.gz")]
+       (fhir.registry.ndjson/write-stream-ndjson-gz
+        (output-stream context DEFAULT_BUCKET out-file)
+        (fn [write]
+          (try
+            (reduce-tar inps (fn [acc file read]
+                               (if (str/ends-with? file ".json")
+                                 (try
+                                   (let [res (cheshire.core/parse-string (read))]
+                                     (if (and (get res "url") (get res "resourceType"))
+                                       (do #_(println file (get res "url") (get res "resourceType") (get res "kind") (get res "type"))
+                                           (write (cheshire.core/generate-string (assoc (dissoc res "text") "_filename" file)))
+                                           (assoc acc file (select-keys res ["url" "resourceType" "kind"])))
+                                       acc))
+                                   (catch Exception e
+                                     (println file (.getMessage e))
+                                     acc))
+                                 acc)))
+            (catch Exception e
+              (println :tar-error filename (.getMessage e)))))))))
+
 (system/defstart [context cfg]
   (system/set-system-state context [:svc] (mk-service cfg))
   {})
@@ -180,5 +221,20 @@
   (def pkgs (list-packages context))
   (re-index context)
 
+  (index-ndjson context "-/accdr.fhir.ig.pkg-0.9.21.tgz")
+
+  (list-tgz context)
+
+  (def cnt (atom 0))
+
+  (time
+   (->> (lazy-objects context DEFAULT_BUCKET "-/")
+        (filter (fn [x] (str/ends-with? (.getName x) ".tgz")))
+        (pmap (fn [x]
+                (swap! cnt inc)
+                (print (str @cnt (.getName x) "\n"))
+                (flush)
+                (index-ndjson context (.getName x))))
+        (doall)))
 
   )

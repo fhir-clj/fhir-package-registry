@@ -14,7 +14,8 @@
    [fhir.registry.gcs :as gcs]
    [fhir.registry.legacy]
    [org.httpkit.client]
-   [fhir.registry.semver :as semver])
+   [fhir.registry.semver :as semver]
+   [fhir.registry.ndjson :as ndjson])
   (:import
    [java.util Base64]
    [java.net URL]
@@ -414,6 +415,14 @@ limit 1000
                                                           :destination_name (name d)
                                                           :destination_version v}})))))))))
 
+(defn sync-with-package2 [context]
+  (->> (str/split (:body @(org.httpkit.client/get "http://packages2.fhir.org/web/")) #"\<a href=\"")
+       (mapv (fn [x]
+               (let [res (first (str/split x #"\"" 2))]
+                 (when (str/ends-with? res ".tgz")
+                   res))))
+       (filter identity)
+       (mapv (fn [x] (load-from-url-pacakge2 context x)))))
 
 (system/defstart
   [context config]
@@ -426,6 +435,34 @@ limit 1000
   {:services ["pg" "pg.repo" "http" "uui" "fhir.registry" "fhir.registry.gcs"]
    :http {:port 3333
           :max-body 108388608}})
+
+(defn load-ndjson [context file-name]
+  (let [package (str/replace file-name #"(^-/|.ndjson.gz$)" "")
+       [package-name package-version] (str/split package #"-" 2)]
+   (pg.repo/load
+    context {:table "fhir_packages.canonical"}
+    (fn [write]
+      (fhir.registry.ndjson/read-stream
+       (gcs/input-stream context gcs/DEFAULT_BUCKET file-name)
+       (fn [_ res _line-num]
+         (let [res (assoc res
+                          :id (java.util.UUID/randomUUID)
+                          :package_name package-name
+                          :package_version package-version)]
+           (write res))
+         :ok))))))
+
+(defn load-canonicals [context]
+  (let [context (system/ctx-set-log-level context :error)]
+    (time
+     (->> (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
+          (filter (fn [x] (str/ends-with? (.getName x) ".ndjson.gz")))
+          (pmap (fn [x]
+                  (print ".") (flush)
+                  (try (load-ndjson context (.getName x))
+                       (catch Exception e
+                         (println :ERROR (.getMessage e))))))
+          (doall)))))
 
 ;; TODO: add envs to system
 (defn main [& args]
@@ -443,7 +480,9 @@ limit 1000
   (pgd/delete-pg "fhir-registry")
 
   ;; (pg/generate-migration "fhir_packages")
-   (pg/generate-migration "fhir_packages_name_idx")
+   ;; (pg/generate-migration "fhir_packages_name_idx")
+   ;; (pg/generate-migration "fhir_packages_canonicals")
+
 
   (def pg-config (pgd/ensure-pg "fhir-registry"))
 
@@ -452,8 +491,11 @@ limit 1000
 
   (system/stop-system context)
 
-  (pg/migrate-up context "fhir_packages_name_idx")
-  (pg/migrate-down context "fhir_packages_name_idx")
+  ;; (pg/migrate-up context "fhir_packages_name_idx")
+  ;; (pg/migrate-down context "fhir_packages_name_idx")
+
+  ;; (pg/migrate-up context "fhir_packages_canonicals")
+  ;; (pg/migrate-down context "fhir_packages_canonicals")
 
   (pg.repo/select context {:table "fhir_packages.package"})
   (pg.repo/select context {:table "fhir_packages.package_dependency"})
@@ -481,12 +523,34 @@ limit 1000
          (catch Exception e
            (println (.getMessage e)))))
 
-  (->> (str/split (:body @(org.httpkit.client/get "http://packages2.fhir.org/web/")) #"\<a href=\"")
-       (mapv (fn [x]
-               (let [res (first (str/split x #"\"" 2))]
-                 (when (str/ends-with? res ".tgz")
-                   res))))
-       (filter identity)
-       (mapv (fn [x] (load-from-url-pacakge2 context x))))
+  (time
+   (let [file-name "-/hl7.fhir.uv.sdc-3.0.0.ndjson.gz"
+         package (str/replace file-name #"(^-/|.ndjson.gz$)" "")
+         [package-name package-version] (str/split package #"-" 2)]
+     (pg.repo/load
+      context {:table "fhir_packages.canonical"}
+      (fn [write]
+        (fhir.registry.ndjson/read-stream
+         (gcs/input-stream context gcs/DEFAULT_BUCKET file-name)
+         (fn [_ res line-num]
+           (let [res (assoc res
+                            :id (str package-name "@" package-version "/" (:_filename res))
+                            :package_name package-name
+                            :package_version package-version)]
+             (write res))))))))
+
+  (pg.repo/select context {:table "fhir_packages.canonical" :limit 10})
+  (pg/execute! context {:sql "truncate fhir_packages.canonical"})
+
+  (time
+   (->> (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
+        (filter (fn [x] (str/ends-with? (.getName x) ".ndjson.gz")))
+        (pmap (fn [x]
+                (print ".") (flush)
+                (try (load-ndjson context (.getName x))
+                     (catch Exception e
+                       (println :ERROR (.getMessage e))))))
+        (doall)))
+
 
   )
