@@ -271,9 +271,7 @@ limit 1000
                                                      [:ilike [:pg/sql "url || '|' || coalesce(version,package_version)"]
                                                       [:pg/param (str "%" (str/replace q #"\s+" "%") "%")]])
                                             :limit 300}})))
-    (pg/execute! context {:dsql {:select [:pg/list
-                                          :id :url :version :package_name :package_version :_filename
-                                          [:pg/sql "resource->>'resourceType' as resourcetype"]]
+    (pg/execute! context {:dsql {:select [:pg/list :id :url :version :package_name :package_version :_filename [:pg/sql "\"resourceType\""]]
                                  :from :fhir_packages.canonical
                                  ;; :order-by [:pg/list :url :version]
                                  :where (when (and q (not (str/blank? q)))
@@ -283,11 +281,11 @@ limit 1000
 
 (defn canonicals-grid [context request canonicals]
   [:div#search-results {:class "mt-4"}
-   [:table.uui {:class "text-xs"}
+   [:table.uui {:class "text-sm"}
     [:tbody
      (for [can canonicals]
        [:tr
-        [:td (:resourcetype can)]
+        [:td (:resourceType can)]
         [:td [:a {:href (str "/canonicals/" (:id can)) :class "text-sky-700"}
               (:url can) "|" (or (:version can) (:package_version can))]]
         [:td (:type can)]
@@ -315,7 +313,9 @@ limit 1000
     (layout
      context request
      [:div {:class "p-3" }
-      (uui/json-block canonical)])))
+      (uui/breadcramp ["/canonicals" "Canonicals"] ["#" (:url canonical)])
+      [:div {:class "mt-4"}
+       (uui/json-block canonical)]])))
 
 
 (defn ^{:http {:path "/timeline"}}
