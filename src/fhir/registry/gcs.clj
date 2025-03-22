@@ -1,6 +1,7 @@
 (ns fhir.registry.gcs
   (:require [clojure.string :as str]
             [system]
+            [clojure.java.io :as io]
             [cheshire.core])
   (:import [com.google.cloud.storage StorageOptions
             BlobInfo BlobId
@@ -10,6 +11,7 @@
             Storage$BlobGetOption
             Blob$BlobSourceOption
             Storage$BlobWriteOption]
+           [com.google.auth.oauth2 ServiceAccountCredentials]
            [java.util Base64]
            [java.net URL]
            [java.io InputStream]
@@ -20,15 +22,28 @@
            [java.io BufferedReader InputStream InputStreamReader BufferedWriter OutputStreamWriter]))
 
 (system/defmanifest
-  {:description "google storage for FHIR packages"})
+  {:description "google storage for FHIR packages"
+   :config {:service-account {:type "string" }}})
 
 (set! *warn-on-reflection* false)
 
 (defn gz-stream [^InputStream str]
   (GZIPInputStream. str))
 
+
+(comment
+  (def svc
+    (let [creds (ServiceAccountCredentials/fromStream (io/input-stream "./sa.json"))
+          storage (.getService (-> (StorageOptions/newBuilder) (.setCredentials creds) .build))]
+      storage))
+
+  )
+
 (defn mk-service [cfg]
-  (.getService (StorageOptions/getDefaultInstance)))
+  (if-let [sa (:service-account cfg)]
+    (let [creds (ServiceAccountCredentials/fromStream (io/input-stream sa))]
+      (.getService (-> (StorageOptions/newBuilder) (.setCredentials creds) .build)))
+    (.getService (StorageOptions/getDefaultInstance))))
 
 (defn get-svc [context]
   (system/get-system-state context [:svc]))
@@ -152,7 +167,10 @@
   {})
 
 (comment
-  (def context (system/start-system {:services ["fhir.registry.gcs"]}))
+  (def context (system/start-system {:services ["fhir.registry.gcs"]
+                                     :fhir.registry.gcs {:service-account "./sa.json"}}))
+
+  (system/stop-system context)
 
   (get-bucket context DEFAULT_BUCKET)
   (objects context DEFAULT_BUCKET)
@@ -161,8 +179,6 @@
 
   (def pkgs (list-packages context))
   (re-index context)
-
-
 
 
   )

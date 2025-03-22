@@ -403,7 +403,9 @@ limit 1000
 ;; TODO: add envs to system
 (defn main [& args]
   (def pg-config {:database "registry" :user "registry" :port 5432 :host "localhost" :password (System/getenv "PG_PASSWORD")})
-  (def context (system/start-system (assoc default-config :pg pg-config))))
+  (def context (system/start-system (assoc default-config
+                                           :pg pg-config
+                                           :fhir.registry.gcs {:service-account "./sa.json"}))))
 
 (comment
   (require '[pg.docker :as pgd])
@@ -418,7 +420,8 @@ limit 1000
 
   (def pg-config (pgd/ensure-pg "fhir-registry"))
 
-  (def context (system/start-system (assoc default-config :pg pg-config)))
+  (def context (system/start-system (assoc default-config :pg pg-config
+                                           :fhir.registry.gcs {:service-account "./sa.json"})))
 
   (system/stop-system context)
 
