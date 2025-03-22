@@ -257,15 +257,54 @@ order by d.source_name, d.source_version
 limit 1000
 "}))
 
+(defn search-canonicals [context request]
+  (let [q (:search (:query-params request))]
+    (pg/execute! context {:dsql {:select [:pg/list
+                                          :id :url :version :package_name :package_version :_filename
+                                          [:pg/sql "resource->>'resourceType' as resourcetype"]]
+                                 :from :fhir_packages.canonical
+                                 :order-by [:pg/list :url :version]
+                                 :where (when (and q (not (str/blank? q)))
+                                          [:ilike :url [:pg/param (str "%" (str/replace q #"\s+" "%") "%")]])
+                                 :limit 300}})))
+
+
+(defn canonicals-grid [context request canonicals]
+  [:div#search-results {:class "mt-4"}
+   [:table.uui {:class "text-xs"}
+    [:tbody
+     (for [can canonicals]
+       [:tr
+        [:td (:resourcetype can)]
+        [:td [:a {:href (str "/canonicals/" (:id can)) :class "text-sky-700"}
+              (:url can) "|" (or (:version can) (:package_version can))]]
+        [:td (:type can)]
+        [:td [:a {:class "text-sky-700"
+                  :href (str "/" (:package_name can) "/" (:package_version can))}
+              (:package_name can)  "@" (:package_version can)]]
+        ])]]])
 
 (defn ^{:http {:path "/canonicals"}}
   canonicals
   [context request]
-  (let [broken-deps (get-broken-deps context)]
+  (let [canonicals (search-canonicals context request)]
+    (if (uui/hx-target request)
+      (uui/response (canonicals-grid context request canonicals))
+      (layout
+       context request
+       [:div {:class "p-3" }
+        (search-input request {:url "/canonicals" :placeholder "Search with prefix: hl7 fhir r5"})
+        (canonicals-grid context request canonicals)]))))
+
+(defn ^{:http {:path "/canonicals/:id"}}
+  show-canonical
+  [context {{id :id} :route-params :as request}]
+  (let [canonical (pg.repo/read context {:table :fhir_packages.canonical :match {:id id}})]
     (layout
      context request
      [:div {:class "p-3" }
-      [:h1.uui "TBD"]])))
+      (uui/json-block canonical)])))
+
 
 (defn ^{:http {:path "/timeline"}}
   timeline
@@ -479,10 +518,6 @@ limit 1000
 
   (pgd/delete-pg "fhir-registry")
 
-  ;; (pg/generate-migration "fhir_packages")
-   ;; (pg/generate-migration "fhir_packages_name_idx")
-   ;; (pg/generate-migration "fhir_packages_canonicals")
-
 
   (def pg-config (pgd/ensure-pg "fhir-registry"))
 
@@ -491,11 +526,19 @@ limit 1000
 
   (system/stop-system context)
 
+  ;; (pg/generate-migration "fhir_packages")
+  ;; (pg/generate-migration "fhir_packages_name_idx")
+  ;; (pg/generate-migration "fhir_packages_canonicals")
+  (pg/generate-migration "fhir_packages_canonical_idx")
+
   ;; (pg/migrate-up context "fhir_packages_name_idx")
   ;; (pg/migrate-down context "fhir_packages_name_idx")
 
   ;; (pg/migrate-up context "fhir_packages_canonicals")
   ;; (pg/migrate-down context "fhir_packages_canonicals")
+  (pg/migrate-up context "fhir_packages_canonical_idx")
+
+  (pg/migrate-down context "fhir_packages_canonical_idx")
 
   (pg.repo/select context {:table "fhir_packages.package"})
   (pg.repo/select context {:table "fhir_packages.package_dependency"})
@@ -540,17 +583,10 @@ limit 1000
              (write res))))))))
 
   (pg.repo/select context {:table "fhir_packages.canonical" :limit 10})
-  (pg/execute! context {:sql "truncate fhir_packages.canonical"})
+  ;; (pg/execute! context {:sql "truncate fhir_packages.canonical"})
 
-  (time
-   (->> (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
-        (filter (fn [x] (str/ends-with? (.getName x) ".ndjson.gz")))
-        (pmap (fn [x]
-                (print ".") (flush)
-                (try (load-ndjson context (.getName x))
-                     (catch Exception e
-                       (println :ERROR (.getMessage e))))))
-        (doall)))
+  (pg/execute! context {:sql "update fhir_packages.canonical set id = gen_random_uuid()"})
 
+  (pg/execute! context {:sql "select count(*) from fhir_packages.canonical"})
 
   )
