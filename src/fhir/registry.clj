@@ -166,17 +166,24 @@
 
   )
 
-(defn copy-block [cmd]
-  [:div {:class "mt-4 border border-gray-300 bg-gray-100 rounded-md flex items-center text-sm"}
-   [:div#npm-install {:class "flex-1 font-mono py-1 px-4"} cmd]
-   [:a {:class "px-4 py-1 cursor-pointer hover:text-sky-600"
-        :onclick "navigator.clipboard.writeText(document.getElementById('npm-install').innerText)"}
-    (ico/clipboard "size-6" :outline)]])
+(defn copy-block [cmd & [title]]
+  (let [id (str "code-" (gensym))
+        marker-id (str id "-marker")]
+    [:div {:class "mt-4 border border-gray-300 bg-gray-100 rounded-md  text-xs"}
+     (when title [:div {:class "text-xs border-b border-gray-300 text-center text-gray-500 bg-gray-200"} title])
+     [:div {:class "flex items-center"}
+      [:code {:id id :class "flex-1 font-mono py-1 px-4"} cmd]
+      [:a {:class "px-1 py-1 cursor-pointer hover:text-sky-600 rounded-sm"
+           :onclick (format "copyCode('%s','%s')" id marker-id)}
+       [:div {:class "relative"}
+        (ico/clipboard "size-6" :outline)
+        [:div {:id marker-id :class "hidden absolute top-0 left-0"} (ico/check "text-green-600 size-6")]]]]]))
 
 (defn ^{:http {:path "/:package"}}
   package
   [context {{package-name :package} :route-params :as request}]
-  (let [package  (get-package context package-name)]
+  (let [package  (get-package context package-name)
+        latest-v (get-in package [:dist-tags :latest])]
     (if-not package
       {:status 404}
       (if (not (json? request))
@@ -189,7 +196,10 @@
           [:div {:class "flex items-top space-x-8"}
            [:div {:class "py-3 w-3xl" }
             [:h1.uui {:class "border-b py-2"} (:name package)]
-            (copy-block (str "npm install --registry http://fs.get-ig.org/pkgs " (:name package)))
+            (copy-block (str "npm install --registry http://fs.get-ig.org/pkgs " (:name package)) "Install package")
+            (copy-block (format "curl http://fs.get-ig.org/rs/%s | gunzip | jq '{url,resourceType,version, id}'"
+                                (str (:name package) "-" latest-v ".ndjson.gz"))
+                        "Get resources")
             [:p {:class "mt-4 text-gray-600 text-sm w-3xl"}
              (:description package)]
             [:details
@@ -202,7 +212,7 @@
                (let [pkg (get-in package [:versions v])]
                  [:div {:class "py-1"}
                   [:a {:class "text-sky-600 flex items-center space-x-2" :href (str "/" (:name pkg) "/" (:version pkg))}
-                   (if (= v (get-in package [:dist-tags :latest]))
+                   (if (= latest-v v)
                      (ico/star "size-4 text-red-400")
                      (ico/star "size-4 text-gray-400" :outline))
                    [:span (:version pkg)]
@@ -252,7 +262,10 @@
              [:a {:href (str "http://fs.get-ig.org/-/" (:name package) "-" (:version package) ".tgz")
                   :class "border px-2 py-1 hover:bg-gray-100 rounded border-gray-300 hover:text-sky-600 text-gray-600"}
               (ico/cloud-arrow-down "size-4")]]
-            (copy-block (str "npm install --registry http://fs.get-ig.org/pkgs " (:name package) "@" (:version package)))
+            (copy-block (str "npm install --registry http://fs.get-ig.org/pkgs " (:name package) "@" (:version package)) "Install package")
+            (copy-block (format "curl http://fs.get-ig.org/rs/%s | gunzip | jq '{url,resourceType,version, id}'"
+                                (str (:name package) "-" (:version package) ".ndjson.gz"))
+                        "Get resources")
             [:p {:class "mt-4 text-gray-600 text-sm"}
              (:description package)]
 
@@ -702,5 +715,28 @@ limit 1000
                (gcs/spit-blob context (str "pkgs/" pkg) (cheshire.core/generate-string package {:pretty true})
                               {:content-type "application/json"}))))
 
+  (time
+   (->>
+    (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
+    (filter (fn [x] (str/ends-with? (.getName x) ".ndjson.gz")))
+    (pmap (fn [src-blob]
+            (gcs/copy context src-blob
+                      (str/replace (.getName src-blob) #"^-/" "rs/")
+                      {:content-type "application/x-ndjson+gzip"})))
+    (doall)))
+
+  (time
+   (->>
+    (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
+    (filter (fn [x] (str/ends-with? (.getName x) ".ndjson.gz")))
+    (pmap (fn [src-blob] (gcs/delete context src-blob)))
+    (doall)))
+
+  (time
+   (->>
+    (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
+    (filter (fn [x] (str/ends-with? (.getName x) ".json")))
+    (pmap (fn [src-blob] (gcs/delete context src-blob)))
+    (doall)))
 
   )

@@ -51,3 +51,9 @@ function lazyscript(glob, url, f) {
         f()
     }
 }
+
+function copyCode(id, markid) {
+    navigator.clipboard.writeText($(id).innerText)
+    $(markid).classList.remove('hidden');
+    setTimeout(()=> { $(markid).classList.add('hidden') }, 3000)
+}

@@ -12,3 +12,7 @@ h1 {
 h2 {
     @apply text-lg my-2 flex items-baseline space-x-4;
 }
+
+.hidden {
+    display: none;
+}

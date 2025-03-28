@@ -9,6 +9,7 @@
             Storage Bucket Blob Storage$BucketGetOption
             Blob$BlobSourceOption
             Storage$BlobListOption
+            Storage$CopyRequest
             Storage$BlobGetOption
             Blob$BlobSourceOption
             Storage$BlobWriteOption]
@@ -95,6 +96,23 @@
         blb (.get service bid (into-array Storage$BlobGetOption []))]
     (assert blb (str "FILE NOT EXISTS:" bucket "/" file))
     blb))
+
+(defn copy [context src-blob dest-blob-path {content-type :content-type}]
+  (let [service (get-svc context)
+        dest-bid (BlobId/of DEFAULT_BUCKET dest-blob-path)
+        dest-blob (-> (let [b (BlobInfo/newBuilder dest-bid)]
+                        (when content-type (.setContentType b content-type))
+                        (.build b))
+                      (.getBlobId))
+        request (let [b (Storage$CopyRequest/newBuilder)]
+                  (.setSource b (.getBlobId src-blob))
+                  (.setTarget b dest-blob)
+                  (.build b))]
+    (.copy service request)))
+
+(defn delete [context blob]
+  (let [service (get-svc context)]
+    (.delete service (.getBlobId blob))))
 
 (defn input-stream [context bucket file & [gzip]]
   (let [blob (get-blob context bucket file)
