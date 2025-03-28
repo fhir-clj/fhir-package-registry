@@ -23,6 +23,9 @@
            [java.nio.channels Channels]
            [java.io BufferedReader InputStream InputStreamReader BufferedWriter OutputStreamWriter]))
 
+
+(def DEFAULT_BUCKET "fs.get-ig.org")
+
 (system/defmanifest
   {:description "google storage for FHIR packages"
    :config {:service-account {:type "string" }}})
@@ -129,7 +132,6 @@
         ch (.writer ^Storage service ^BlobInfo (.build binfo) (into-array Storage$BlobWriteOption []))]
     (Channels/newOutputStream ch)))
 
-(def DEFAULT_BUCKET "fs.get-ig.org")
 
 (defn reduce-tar [^InputStream input-stream cb & [acc]]
   (with-open [^GzipCompressorInputStream gzip-compressor-input-stream (GzipCompressorInputStream. input-stream)
