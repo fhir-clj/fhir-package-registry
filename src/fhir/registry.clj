@@ -4,18 +4,22 @@
    [http]
    [pg]
    [pg.repo]
+   [pg.docker :as pgd]
    [cheshire.core]
    [uui]
    [uui.heroicons :as ico]
    [clojure.java.io :as io]
    [clojure.string :as str]
+   [clojure.set]
    [ring.middleware.multipart-params :as multipart]
    [clojure.walk]
    [fhir.registry.gcs :as gcs]
    [fhir.registry.legacy]
    [org.httpkit.client]
    [fhir.registry.semver :as semver]
-   [fhir.registry.ndjson :as ndjson])
+   [fhir.registry.ndjson :as ndjson]
+   [fhir.registry.packages2 :as packages2]
+   [fhir.registry.tar :as tar])
   (:import
    [java.util Base64]
    [java.net URL]
@@ -137,20 +141,22 @@
          :_id (str (:name package) "@" (:version package))
          :dist {:tarball (str "http://fs.get-ig.org/-/" (:name package) "-" (:version package) ".tgz")}))
 
+(defn build-package-json [versions]
+  (when (seq versions)
+    (let [sorted-versions (sort semver/semver-comparator (keys versions))
+          latest-version (last sorted-versions)
+          latest (get versions latest-version)]
+      (assoc latest
+             :_versions (reverse sorted-versions)
+             :versions versions
+             :dist-tags {:latest latest-version}))))
+
 (defn get-package [context package-name]
   (let [versions (->> (pg.repo/select context {:table "fhir_packages.package" :match {:name package-name}})
                       (reduce (fn [acc {v :version :as package}]
                                 (assoc acc v (format-package package)))
                               {}))]
-    (if (empty? versions)
-      nil
-      (let [sorted-versions (sort semver/semver-comparator (keys versions))
-            latest-version (last sorted-versions)
-            latest (get versions latest-version)]
-        (assoc latest
-               :_versions (reverse sorted-versions)
-               :versions versions
-               :dist-tags {:latest latest-version})))))
+    (build-package-json versions)))
 
 
 (comment
@@ -159,6 +165,13 @@
   (get-package context "hl7.fhir.r4.core")
 
   )
+
+(defn copy-block [cmd]
+  [:div {:class "mt-4 border border-gray-300 bg-gray-100 rounded-md flex items-center text-sm"}
+   [:div#npm-install {:class "flex-1 font-mono py-1 px-4"} cmd]
+   [:a {:class "px-4 py-1 cursor-pointer hover:text-sky-600"
+        :onclick "navigator.clipboard.writeText(document.getElementById('npm-install').innerText)"}
+    (ico/clipboard "size-6" :outline)]])
 
 (defn ^{:http {:path "/:package"}}
   package
@@ -176,6 +189,7 @@
           [:div {:class "flex items-top space-x-8"}
            [:div {:class "py-3 w-3xl" }
             [:h1.uui {:class "border-b py-2"} (:name package)]
+            (copy-block (str "npm install --registry http://fs.get-ig.org/pkgs " (:name package)))
             [:p {:class "mt-4 text-gray-600 text-sm w-3xl"}
              (:description package)]
             [:details
@@ -199,13 +213,13 @@
 ;; TODO: dsql escape :cammelCase
 ;; TODO: bug with - in package name :(
 (defn package-canonicals [context request opts]
-  (let [canonicals (pg/execute! context {:dsql {:select [:pg/list :id :url :version :_filename [:pg/sql "\"resourceType\""]]
-                                                :from :fhir_packages.canonical
-                                                :where [:and
-                                                        [:= :package_name (:name opts)]
-                                                        [:= :package_version (:version opts)]]
-                                                :limit 1000
-                                                :order-by :url}})]
+  (let [canonicals (->> (pg/execute! context {:dsql {:select [:pg/list :id :url :version :_filename [:pg/sql "\"resourceType\""]]
+                                                    :from :fhir_packages.canonical
+                                                    :where [:and
+                                                            [:= :package_name (:name opts)]
+                                                            [:= :package_version (:version opts)]]
+                                                    :limit 1000}})
+                       (sort-by :_filename))]
     [:div {:class "mt-4"}
      [:table.uui {:class "text-sm"}
       [:thead [:tr [:th "resourceType"] [:th "file"]]]
@@ -238,6 +252,7 @@
              [:a {:href (str "http://fs.get-ig.org/-/" (:name package) "-" (:version package) ".tgz")
                   :class "border px-2 py-1 hover:bg-gray-100 rounded border-gray-300 hover:text-sky-600 text-gray-600"}
               (ico/cloud-arrow-down "size-4")]]
+            (copy-block (str "npm install --registry http://fs.get-ig.org/pkgs " (:name package) "@" (:version package)))
             [:p {:class "mt-4 text-gray-600 text-sm"}
              (:description package)]
 
@@ -499,14 +514,27 @@ limit 1000
                                                           :destination_name (name d)
                                                           :destination_version v}})))))))))
 
-(defn sync-with-package2 [context]
-  (->> (str/split (:body @(org.httpkit.client/get "http://packages2.fhir.org/web/")) #"\<a href=\"")
+
+(defn list-tgz [context]
+  (->> (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
+       (filter (fn [x] (str/ends-with? (.getName x) ".tgz")))
+       (mapv (fn [x] (bean x)))
+       (sort-by :size)
        (mapv (fn [x]
-               (let [res (first (str/split x #"\"" 2))]
-                 (when (str/ends-with? res ".tgz")
-                   res))))
-       (filter identity)
-       (mapv (fn [x] (load-from-url-pacakge2 context x)))))
+               {:size (:size x)
+                :name (clojure.string/replace (:name x) #"-/" "")}))))
+
+
+(defn diff-with-packages2 [context]
+  (clojure.set/difference
+   (into #{} (packages2/packages))
+   (into #{} (map :name (list-tgz context)))))
+
+(defn sync-with-package2 [context]
+  (->> (diff-with-packages2 context)
+       (pmap (fn [x]
+               (println (str "sync " x))
+               (load-from-url-pacakge2 context x)))))
 
 (system/defstart
   [context config]
@@ -521,6 +549,7 @@ limit 1000
           :max-body 108388608}})
 
 (defn load-ndjson [context file-name]
+  ;; (println file-name)
   (let [package (str/replace file-name #"(^-/|.ndjson.gz$)" "")
        [package-name package-version] (str/split package #"-" 2)]
    (pg.repo/load
@@ -542,10 +571,11 @@ limit 1000
      (->> (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
           (filter (fn [x] (str/ends-with? (.getName x) ".ndjson.gz")))
           (pmap (fn [x]
-                  (print ".") (flush)
-                  (try (load-ndjson context (.getName x))
-                       (catch Exception e
-                         (println :ERROR (.getMessage e))))))
+                 (try
+                   (load-ndjson context (.getName x))
+                   (print ".") (flush)
+                   (catch Exception e
+                     (println :ERROR (.getMessage e))))))
           (doall)))))
 
 ;; TODO: add envs to system
@@ -555,94 +585,122 @@ limit 1000
                                            :pg pg-config
                                            :fhir.registry.gcs {:service-account "./sa.json"}))))
 
-(comment
-  (require '[pg.docker :as pgd])
-  (require '[system.dev :as dev])
 
+(defn start-dev []
+  (def pg-config (pgd/ensure-pg "fhir-registry"))
+  (def context (system/start-system (assoc default-config :pg pg-config :fhir.registry.gcs {:service-account "./sa.json"}))))
+
+(defn stop-dev []
+  (system/stop-system context))
+
+(comment
+  (require '[system.dev :as dev])
   (dev/update-libs)
 
-  (pgd/delete-pg "fhir-registry")
+  ;; (def context (system/start-system {:pg pg-config :services ["pg"]}))
 
+  ;; (pgd/delete-pg "fhir-registry")
 
-  (def pg-config (pgd/ensure-pg "fhir-registry"))
+  (start-dev)
+  (stop-dev)
 
-  (def context (system/start-system (assoc default-config :pg pg-config
-                                           :fhir.registry.gcs {:service-account "./sa.json"})))
-
-  (def context (system/start-system {:pg pg-config :services ["pg"]}))
-
-  (pg/execute! context {:sql "vacuum full fhir_packages.canonical"})
-  (pg/execute! context {:sql "drop table _tmp"})
-
-  (pg/execute! context {:sql "create table _tmp as select * from fhir_packages.canonical limit 10000"})
-  (pg/execute! context {:sql "truncate table fhir_packages.canonical"})
-  (pg/execute! context {:sql "insert into fhir_packages.canonical select * from _tmp"})
-
-  (pg/execute! context {:sql "select count(*) from fhir_packages.canonical"})
-
-  (system/stop-system context)
-
-  ;; (pg/generate-migration "fhir_packages")
-  ;; (pg/generate-migration "fhir_packages_name_idx")
-  ;; (pg/generate-migration "fhir_packages_canonicals")
-  (pg/generate-migration "fhir_packages_canonical_idx")
-
-  ;; (pg/migrate-up context "fhir_packages_name_idx")
-  ;; (pg/migrate-down context "fhir_packages_name_idx")
-
-  ;; (pg/migrate-up context "fhir_packages_canonicals")
-  ;; (pg/migrate-down context "fhir_packages_canonicals")
-  (pg/migrate-up context "fhir_packages_canonical_idx")
-
-  (pg/migrate-down context "fhir_packages_canonical_idx")
-
-  (pg.repo/select context {:table "fhir_packages.package"})
-  (pg.repo/select context {:table "fhir_packages.package_dependency"})
-
-  (pg/execute! context {:sql "truncate fhir_packages.package_dependency"})
-
-
-  (pg/execute! context {:sql"select count(*) from fhir_packages.package"})
+  (pg/execute! context {:sql "truncate fhir_packages.canonical"})
+  (load-canonicals context)
 
   (re-index context)
   (gcs/re-index context)
 
   (fhir.registry.legacy/package-info "hl7.fhir.uv.sdc@3.0.0")
 
-  (load-from-simplifier svc "hl7.fhir.uv.sdc@3.0.0")
-  (load-from-simplifier svc "hl7.fhir.uv.smart-app-launch@2.1.0")
-  (load-from-simplifier svc "hl7.terminology.r4@5.0.0")
-  (load-from-simplifier svc "ihe.formatcode.fhir@1.1.0")
-  (load-from-simplifier svc "us.cdc.phinvads@0.12.0")
-  (load-from-simplifier svc "us.nlm.vsac@0.9.0")
-  (load-from-simplifier svc "hl7.fhir.r4.examples@4.0.1")
+  ;; (load-from-simplifier svc "hl7.fhir.uv.sdc@3.0.0")
+  ;; (load-from-simplifier svc "hl7.fhir.uv.smart-app-launch@2.1.0")
+  ;; (load-from-simplifier svc "hl7.terminology.r4@5.0.0")
+  ;; (load-from-simplifier svc "ihe.formatcode.fhir@1.1.0")
+  ;; (load-from-simplifier svc "us.cdc.phinvads@0.12.0")
+  ;; (load-from-simplifier svc "us.nlm.vsac@0.9.0")
+  ;; (load-from-simplifier svc "hl7.fhir.r4.examples@4.0.1")
 
-  (doseq [pkg (keys (group-by (fn [x] (str (:destination_name x) "@" (:destination_version x))) (get-broken-deps context)))]
-    (try (load-from-simplifier context pkg)
-         (catch Exception e
-           (println (.getMessage e)))))
-
-  (time
-   (let [file-name "-/hl7.fhir.uv.sdc-3.0.0.ndjson.gz"
-         package (str/replace file-name #"(^-/|.ndjson.gz$)" "")
-         [package-name package-version] (str/split package #"-" 2)]
-     (pg.repo/load
-      context {:table "fhir_packages.canonical"}
-      (fn [write]
-        (fhir.registry.ndjson/read-stream
-         (gcs/input-stream context gcs/DEFAULT_BUCKET file-name)
-         (fn [_ res line-num]
-           (let [res (assoc res
-                            :id (str package-name "@" package-version "/" (:_filename res))
-                            :package_name package-name
-                            :package_version package-version)]
-             (write res))))))))
-
-  (pg.repo/select context {:table "fhir_packages.canonical" :limit 10})
+  ;; (doseq [pkg (keys (group-by (fn [x] (str (:destination_name x) "@" (:destination_version x))) (get-broken-deps context)))]
+  ;;   (try (load-from-simplifier context pkg)
+  ;;        (catch Exception e
+  ;;          (println (.getMessage e)))))
   ;; (pg/execute! context {:sql "truncate fhir_packages.canonical"})
 
-  (pg/execute! context {:sql "update fhir_packages.canonical set id = gen_random_uuid()"})
-
   (pg/execute! context {:sql "select count(*) from fhir_packages.canonical"})
+
+  (start-dev)
+
+  (def tgzs (list-tgz context))
+
+  (count tgzs) ;; 4686
+
+  (def tgz2 (packages2/packages))
+  (count tgz2) ;; 4696
+
+  (def df (diff-with-packages2 context))
+
+  (sync-with-package2 context)
+  (diff-with-packages2 context)
+
+  (gcs/re-index context)
+
+  (def misseds
+    (time
+     (->> (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
+          (filter (fn [x] (str/ends-with? (.getName x) ".tgz")))
+          (pmap (fn [x]
+                  (let [s (str "http://fs.get-ig.org/" (str/replace (.getName x) #".tgz$" ".ndjson.gz"))]
+                    (when-not (= 200 (:status @(org.httpkit.client/head s)))
+                      (.getName x)))))
+          (filter identity)
+          (mapv (fn [x] x)))))
+
+  (time (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/ee.fhir.mpi-1.2.0"))
+
+  ;; TODO reindex should create <bucket>/<package> json files with project.json
+
+
+  (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
+
+  (->>
+   (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
+   (map (fn [x] (.getName x)))
+   (filter (fn [x] (or (str/ends-with? x ".ndjson.gz") (str/ends-with? x ".json"))))
+   (take 100))
+
+  (->>
+   (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-")
+   (map (fn [x] (.getName x)))
+   (take 100))
+
+
+  ;; walk tgz
+  ;; collect all packages
+  ;; build package
+  (def pkgs
+    (time
+     (->>
+      (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
+      (filter (fn [x] (str/ends-with? (.getName x) ".tgz")))
+      (pmap
+       (fn [x]
+         (when-let [s (tar/find-entry-input (gcs/blob-input-stream x) "package.json")]
+           (let [package (remove-nils (cheshire.core/parse-string s keyword))]
+             (assoc package
+                    :_id (str (:name package) "@" (:version package))
+                    :dist {:tarball (str "http://fs.get-ig.org/-/" (:name package) "-" (:version package) ".tgz")})))))
+      (filter identity)
+      (into []))))
+
+  (count pkgs)
+
+  (->> (group-by :name pkgs)
+       (reduce (fn [acc [k vs]] (assoc acc k (build-package-json (->> vs (reduce (fn [acc {v :version :as x}] (assoc acc v x)) {}))))) {})
+       ;; (take 10)
+       (pmap (fn [[pkg package]]
+               (println (str "pkgs/" pkg))
+               (gcs/spit-blob context (str "pkgs/" pkg) (cheshire.core/generate-string package {:pretty true})
+                              {:content-type "application/json"}))))
+
 
   )

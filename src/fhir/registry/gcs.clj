@@ -70,7 +70,9 @@
 
 (defn lazy-objects [context ^String bucket & [prefix]]
   (let [bucket (get-bucket context bucket)
-        opts (into-array Storage$BlobListOption (cond-> [] prefix  (conj (Storage$BlobListOption/prefix prefix))))
+        opts (into-array
+              Storage$BlobListOption
+              (cond-> [] prefix  (conj (Storage$BlobListOption/prefix prefix))))
         page   (.list bucket opts)]
     (lazy-page page)))
 
@@ -101,10 +103,11 @@
       (gz-stream inps)
       inps)))
 
-(defn output-stream [context bucket ^String file  & [{gz :gzip}]]
+(defn output-stream [context bucket ^String file  & [{content-type :content-type}]]
   (let [service (get-svc context)
         bid (BlobId/of bucket file)
         binfo (BlobInfo/newBuilder bid)
+        _ (when content-type (.setContentType binfo content-type))
         ch (.writer ^Storage service ^BlobInfo (.build binfo) (into-array Storage$BlobWriteOption []))]
     (Channels/newOutputStream ch)))
 
@@ -142,6 +145,10 @@
 (defn reduce-package [context package version cb & [acc]]
   (let [blob (get-blob (get-svc context) DEFAULT_BUCKET (str "-/" package "-" version ".tgz"))]
     (reduce-tar (blob-input-stream blob) cb acc)))
+
+(defn spit-blob [context filename content & [{_content-type :content-type :as opts}]]
+  (with-open [w (output-stream context DEFAULT_BUCKET filename opts)]
+    (.write w (.getBytes content))))
 
 (defn re-index [context]
   (let [svc (get-svc context)
@@ -236,5 +243,8 @@
                 (flush)
                 (index-ndjson context (.getName x))))
         (doall)))
+
+  
+
 
   )

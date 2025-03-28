@@ -555,17 +555,11 @@
     clip: auto;
     white-space: normal;
   }
-  .\!fixed {
-    position: fixed !important;
-  }
   .absolute {
     position: absolute;
   }
   .fixed {
     position: fixed;
-  }
-  .fixed\! {
-    position: fixed !important;
   }
   .relative {
     position: relative;
@@ -587,18 +581,6 @@
   }
   .isolation-auto {
     isolation: auto;
-  }
-  .z-1 {
-    z-index: 1;
-  }
-  .z-8 {
-    z-index: 8;
-  }
-  .order-4 {
-    order: 4;
-  }
-  .order-8 {
-    order: 8;
   }
   .col-start-1 {
     grid-column-start: 1;
@@ -657,39 +639,6 @@
       max-width: 96rem;
     }
   }
-  .m-3 {
-    margin: calc(var(--spacing) * 3);
-  }
-  .m-5 {
-    margin: calc(var(--spacing) * 5);
-  }
-  .m-6 {
-    margin: calc(var(--spacing) * 6);
-  }
-  .m-20 {
-    margin: calc(var(--spacing) * 20);
-  }
-  .m-90 {
-    margin: calc(var(--spacing) * 90);
-  }
-  .m-128 {
-    margin: calc(var(--spacing) * 128);
-  }
-  .m-129 {
-    margin: calc(var(--spacing) * 129);
-  }
-  .m-170 {
-    margin: calc(var(--spacing) * 170);
-  }
-  .m-178 {
-    margin: calc(var(--spacing) * 178);
-  }
-  .m-182 {
-    margin: calc(var(--spacing) * 182);
-  }
-  .m-195 {
-    margin: calc(var(--spacing) * 195);
-  }
   .mt-4 {
     margin-top: calc(var(--spacing) * 4);
   }
@@ -722,9 +671,6 @@
   }
   .flex {
     display: flex;
-  }
-  .flex\! {
-    display: flex !important;
   }
   .flow-root {
     display: flow-root;
@@ -798,92 +744,8 @@
   .h-1 {
     height: calc(var(--spacing) * 1);
   }
-  .h-2 {
-    height: calc(var(--spacing) * 2);
-  }
-  .h-3 {
-    height: calc(var(--spacing) * 3);
-  }
-  .h-4 {
-    height: calc(var(--spacing) * 4);
-  }
-  .h-4\! {
-    height: calc(var(--spacing) * 4) !important;
-  }
-  .h-5 {
-    height: calc(var(--spacing) * 5);
-  }
-  .h-7 {
-    height: calc(var(--spacing) * 7);
-  }
-  .h-8 {
-    height: calc(var(--spacing) * 8);
-  }
-  .h-9 {
-    height: calc(var(--spacing) * 9);
-  }
-  .h-9\/1 {
-    height: calc(9/1 * 100%);
-  }
-  .h-18 {
-    height: calc(var(--spacing) * 18);
-  }
-  .h-40 {
-    height: calc(var(--spacing) * 40);
-  }
-  .h-42 {
-    height: calc(var(--spacing) * 42);
-  }
-  .h-45 {
-    height: calc(var(--spacing) * 45);
-  }
-  .h-49 {
-    height: calc(var(--spacing) * 49);
-  }
-  .h-52 {
-    height: calc(var(--spacing) * 52);
-  }
-  .h-99 {
-    height: calc(var(--spacing) * 99);
-  }
-  .h-99\! {
-    height: calc(var(--spacing) * 99) !important;
-  }
-  .h-208 {
-    height: calc(var(--spacing) * 208);
-  }
-  .h-210 {
-    height: calc(var(--spacing) * 210);
-  }
-  .h-414 {
-    height: calc(var(--spacing) * 414);
-  }
-  .h-424 {
-    height: calc(var(--spacing) * 424);
-  }
-  .h-454 {
-    height: calc(var(--spacing) * 454);
-  }
-  .h-464 {
-    height: calc(var(--spacing) * 464);
-  }
-  .h-494 {
-    height: calc(var(--spacing) * 494);
-  }
-  .h-414000 {
-    height: calc(var(--spacing) * 414000);
-  }
-  .h-4141 {
-    height: calc(var(--spacing) * 4141);
-  }
   .h-\[96vh\] {
     height: 96vh;
-  }
-  .w-1 {
-    width: calc(var(--spacing) * 1);
-  }
-  .w-2 {
-    width: calc(var(--spacing) * 2);
   }
   .w-3xl {
     width: var(--container-3xl);
@@ -893,9 +755,6 @@
   }
   .w-full {
     width: 100%;
-  }
-  .w-max {
-    width: max-content;
   }
   .flex-1 {
     flex: 1;
@@ -1496,6 +1355,9 @@
   .rounded-lg {
     border-radius: var(--radius-lg);
   }
+  .rounded-md {
+    border-radius: var(--radius-md);
+  }
   .rounded-xl {
     border-radius: var(--radius-xl);
   }
@@ -1623,6 +1485,9 @@
   .border-transparent {
     border-color: transparent;
   }
+  .bg-gray-100 {
+    background-color: var(--color-gray-100);
+  }
   .bg-white {
     background-color: var(--color-white);
   }
@@ -1708,50 +1573,11 @@
   .p-1 {
     padding: calc(var(--spacing) * 1);
   }
-  .p-2 {
-    padding: calc(var(--spacing) * 2);
-  }
   .p-3 {
     padding: calc(var(--spacing) * 3);
   }
-  .p-4 {
-    padding: calc(var(--spacing) * 4);
-  }
-  .p-5 {
-    padding: calc(var(--spacing) * 5);
-  }
   .p-6 {
     padding: calc(var(--spacing) * 6);
-  }
-  .p-20 {
-    padding: calc(var(--spacing) * 20);
-  }
-  .p-28 {
-    padding: calc(var(--spacing) * 28);
-  }
-  .p-51 {
-    padding: calc(var(--spacing) * 51);
-  }
-  .p-52 {
-    padding: calc(var(--spacing) * 52);
-  }
-  .p-81 {
-    padding: calc(var(--spacing) * 81);
-  }
-  .p-86 {
-    padding: calc(var(--spacing) * 86);
-  }
-  .p-709 {
-    padding: calc(var(--spacing) * 709);
-  }
-  .p-2800 {
-    padding: calc(var(--spacing) * 2800);
-  }
-  .p-28008 {
-    padding: calc(var(--spacing) * 28008);
-  }
-  .p-35004 {
-    padding: calc(var(--spacing) * 35004);
   }
   .px-1 {
     padding-inline: calc(var(--spacing) * 1);
@@ -1782,9 +1608,6 @@
   }
   .py-4 {
     padding-block: calc(var(--spacing) * 4);
-  }
-  .ps-1 {
-    padding-inline-start: calc(var(--spacing) * 1);
   }
   .pt-0 {
     padding-top: calc(var(--spacing) * 0);
@@ -1866,6 +1689,9 @@
   }
   .align-top {
     vertical-align: top;
+  }
+  .font-mono {
+    font-family: var(--font-mono);
   }
   .text-base {
     font-size: var(--text-base);
@@ -1965,9 +1791,6 @@
   }
   .text-gray-900 {
     color: var(--color-gray-900);
-  }
-  .text-orange-500 {
-    color: var(--color-orange-500);
   }
   .text-orange-500\/50 {
     color: color-mix(in oklab, var(--color-orange-500) 50%, transparent);
@@ -2308,45 +2131,6 @@
   }
   .forced-color-adjust-none {
     forced-color-adjust: none;
-  }
-  .\[f\:\1 \18 \1 \14 C\=\'produ�cer\'\] {
-    f: C='produ�cer';
-  }
-  .\[f\:\1 \18 \/�I\=\'\!�f\'\] {
-    f: /�I='!�f';
-  }
-  .\[f\:\1 \18 \/�I\=\'\!�r\'\] {
-    f: /�I='!�r';
-  }
-  .\[f\:\3 \1 \18 \14 C\=\'prod�ucer\'\] {
-    f: C='prod ucer';
-  }
-  .\[f\:\8 7\$\/\@B�\=\'\1 \=\'\] {
-    f: 7$/@B�='=';
-  }
-  .\[f\:\13 �uT\'so�mething\'\5 �Cdvr\'adr\'�\] {
-    f: �uT'so mething'�Cdvr'adr'�;
-  }
-  .\[f\:5a\] {
-    f: 5a;
-  }
-  .\[f\:5�\] {
-    f: 5�;
-  }
-  .\[f\:EA\] {
-    f: EA;
-  }
-  .\[f\:E�\] {
-    f: E�;
-  }
-  .\[f\:id\4 ���\@����_��X��\] {
-    f: id   @   �   X��;
-  }
-  .\[p7\:1\] {
-    p7: 1;
-  }
-  .\[r\:ASSE�RTION\] {
-    r: ASSE�RTION;
   }
   .divide-x-reverse {
     :where(& > :not(:last-child)) {
