@@ -52,6 +52,21 @@ Get package json for all versions:
 curl -s http://fs.get-ig.org/pkgs/<package_name> |  jq
 ```
 
+Working with npm:
+
+```
+npm info    --registry http://fs.get-ig.org/pkgs hl7.fhir.us.core
+npm install --registry http://fs.get-ig.org/pkgs hl7.fhir.us.core
+npm install --registry http://fs.get-ig.org/pkgs hl7.fhir.us.core@8.0.0-ballot
+
+# or
+export NPM_CONFIG_REGISTRY=http://fs.get-ig.org/pkgs
+
+npm info    hl7.fhir.us.core
+npm install hl7.fhir.us.core
+npm install hl7.fhir.us.core@8.0.0-ballot
+```
+
 Get canonical resources for a package version:
 ```
 curl -s http://fs.get-ig.org/rs/<package_name>-<version>.ndjson.gz | gunzip | jq
@@ -62,3 +77,9 @@ Get feed - last 1000 loaded packages:
 ```
 curl -s http://fs.get-ig.org/feed.ndjson.gz | gunzip | jq
 ```
+
+## TODO
+
+* handle search (probably using load balancer) - test with `npm search`
+* support upload new package
+* support upload from simplifier
