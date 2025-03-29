@@ -485,25 +485,25 @@ limit 1000
       (< days-ago 3) (format "%d %s ago" days-ago (if (= 1 days-ago) "day" "days"))
       :else (.format formatter instant))))
 
-(defn ^{:http {:path "/timeline" :method :put}}
+(defn ^{:http {:path "/timeline"}}
   timeline
   [context request]
   (let [packages (pg/execute! context {:sql "select * from fhir_packages.import order by lsn desc limit 200"})]
     (layout
      context request
      [:div {:class "p-3"}
-      [:h1.uui "Timeline"]
-      [:table.uui
-
-       [:tbody 
+      [:h1.uui {:class "py-2 border-b"} "Timeline"]
+      [:table.uui {:class "mt-4"}
+       [:thead
+        [:tr [:th "lsn"] [:th "package"] [:th {:title "resources loaded"} "rs"] [:th "when?"]]]
+       [:tbody
         (for [pkg packages]
           [:tr
            [:td (:lsn pkg)]
            [:td [:a {:class "text-sky-600" :href (str "/" (:name pkg) "/" (:version pkg))}
                  (:name pkg) "@" (:version pkg)]]
-           [:td (if (:resources_loaded pkg)
-                  (ico/check-circle "size-4")
-                  "-")]
+           [:td {:title "resources loaded?"}
+            (if (:resources_loaded pkg) (ico/check-circle "size-4 text-green-600" :outline) "-")]
            [:td (format-relative-time (.toInstant (:created_at pkg)))]])]]])))
 
 
