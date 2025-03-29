@@ -27,6 +27,10 @@
    [org.apache.commons.compress.archivers.tar TarArchiveEntry TarArchiveInputStream]
    [org.apache.commons.compress.compressors.gzip GzipCompressorInputStream]))
 
+
+(defn map-indexed-starting [f start-from coll]
+  (map-indexed (fn [idx item] (f (+ idx start-from) item)) coll))
+
 (system/defmanifest
   {:description "FHIR Registry"
    :deps ["pg" "pg.repo" "http"]
@@ -606,6 +610,89 @@ limit 1000
 (defn stop-dev []
   (system/stop-system context))
 
+(defn current-packages-from-tgz
+  "this is expensive operation"
+  [context]
+  (time
+   (->>
+    (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
+    (filter (fn [x] (str/ends-with? (.getName x) ".tgz")))
+    (pmap
+     (fn [x]
+       (when-let [s (tar/find-entry-input (gcs/blob-input-stream x) "package.json")]
+         (let [package (remove-nils (cheshire.core/parse-string s keyword))]
+           (assoc package :tgz (.getName x))))))
+    (filter identity)
+    (into []))))
+
+(defn current-packages [context]
+  (fhir.registry.ndjson/read-stream
+   (gcs/input-stream context gcs/DEFAULT_BUCKET "pgks.ndjson.gz")))
+
+(defn write-current-packages [context pkgs]
+  (fhir.registry.ndjson/write-stream-ndjson-gz
+   (gcs/output-stream context gcs/DEFAULT_BUCKET "pgks.ndjson.gz")
+   (fn [write]
+     (->> pkgs
+          (mapv (fn [x] (-> x (dissoc :_id :dist) (assoc :tgz (str "-/" (:name x) "-" (:version x) ".tgz")))))
+          (sort-by (fn [x] (:tgz x)))
+          (mapv (fn [x] (write (cheshire.core/generate-string x))))))))
+
+
+(defn reindex-tgz [context]
+  (let [cur-pgs (current-packages context)
+        pkg-idx (->> cur-pgs (group-by :name))
+        tgzs (list-tgz context)
+        _  (println :current-packages (count cur-pgs) :current-tgzs (count tgzs))
+        diff (clojure.set/difference
+              (into #{} (mapv :name tgzs))
+              (->> (mapv :tgz cur-pgs)
+                   (mapv (fn [x] (str/replace x #"-/" "")))
+                   (into #{})))
+        new-packages (->> diff
+                          (pmap (fn [tgz]
+                                  (let [inps (gcs/input-stream context gcs/DEFAULT_BUCKET (str "-/" tgz))]
+                                    (cheshire.core/parse-string (tar/find-entry-input inps "package.json") keyword)
+                                    )))
+                          (doall))
+        new-pkgs-idx (group-by :name new-packages)]
+    (->> new-pkgs-idx
+         (pmap (fn [[pkg-name pkg-versions]]
+                 (when-let [versions (mapv format-package (get pkg-idx pkg-name))]
+                   (let [pkgv (build-package-json (->> (concat versions (mapv format-package pkg-versions))
+                                                       (reduce (fn [acc {v :version :as pkg}]
+                                                                 (println pkg)
+                                                                 (assoc acc (or v "0.0.0") (assoc pkg :version (or v "0.0.0"))))
+                                                               {})))]
+                     (println :write (str "pkgs/" pkg-name))
+                     (gcs/spit-blob context (str "pkgs/" pkg-name)
+                                    (cheshire.core/generate-string pkgv {:pretty true}) {:content-type "application/json"})))))
+         (doall))
+    (when-not (empty? new-packages)
+      (println :update/current-packages)
+      ;;TODO: handle duplicates
+      (write-current-packages context (->> (concat cur-pgs new-packages) (sort-by (fn [x] [(:name x) (:version x)]))))
+      (let [feed (fhir.registry.ndjson/read-stream (gcs/input-stream context gcs/DEFAULT_BUCKET "feed.ndjson.gz"))
+            lsn (:lsn (last feed))
+            new-packages-with-lsn (->> new-packages
+                                       (sort-by :name)
+                                       (map-indexed-starting
+                                        (fn [idx pkg]
+                                          (assoc pkg
+                                                 :lsn idx
+                                                 :timestamp (java.time.Instant/now)
+                                                 :tgz (str "-/" (:name pkg) "-" (:version pkg) ".tgz")))
+                                        (inc (or lsn -1)))
+                                       (doall))]
+        (println :update/feed :from lsn)
+        (fhir.registry.ndjson/write-stream-ndjson-gz
+         (gcs/output-stream context gcs/DEFAULT_BUCKET "feed.ndjson.gz")
+         (fn [write]
+           (->> feed (mapv (fn [x] (write (cheshire.core/generate-string x)))))
+           (->> new-packages-with-lsn (mapv (fn [x] (write (cheshire.core/generate-string x)))))))))))
+
+
+
 (comment
   (require '[system.dev :as dev])
   (dev/update-libs)
@@ -643,100 +730,19 @@ limit 1000
 
   (start-dev)
 
-  (def tgzs (list-tgz context))
+  ;; (pg/generate-migration "fhir_packages_logs")
 
-  (count tgzs) ;; 4686
+  (pg/migrate-up context "fhir_packages_logs")
 
-  (def tgz2 (packages2/packages))
-  (count tgz2) ;; 4696
+  (def current-pkgs (current-packages context))
 
-  (def df (diff-with-packages2 context))
+  (def pkgs2 (packages2/packages))
 
   (sync-with-package2 context)
-  (diff-with-packages2 context)
 
-  (gcs/re-index context)
-
-  (def misseds
-    (time
-     (->> (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
-          (filter (fn [x] (str/ends-with? (.getName x) ".tgz")))
-          (pmap (fn [x]
-                  (let [s (str "http://fs.get-ig.org/" (str/replace (.getName x) #".tgz$" ".ndjson.gz"))]
-                    (when-not (= 200 (:status @(org.httpkit.client/head s)))
-                      (.getName x)))))
-          (filter identity)
-          (mapv (fn [x] x)))))
-
-  (time (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/ee.fhir.mpi-1.2.0"))
-
-  ;; TODO reindex should create <bucket>/<package> json files with project.json
-
-
-  (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
-
-  (->>
-   (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
-   (map (fn [x] (.getName x)))
-   (filter (fn [x] (or (str/ends-with? x ".ndjson.gz") (str/ends-with? x ".json"))))
-   (take 100))
-
-  (->>
-   (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-")
-   (map (fn [x] (.getName x)))
-   (take 100))
-
-
-  ;; walk tgz
-  ;; collect all packages
-  ;; build package
-  (def pkgs
-    (time
-     (->>
-      (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
-      (filter (fn [x] (str/ends-with? (.getName x) ".tgz")))
-      (pmap
-       (fn [x]
-         (when-let [s (tar/find-entry-input (gcs/blob-input-stream x) "package.json")]
-           (let [package (remove-nils (cheshire.core/parse-string s keyword))]
-             (assoc package
-                    :_id (str (:name package) "@" (:version package))
-                    :dist {:tarball (str "http://fs.get-ig.org/-/" (:name package) "-" (:version package) ".tgz")})))))
-      (filter identity)
-      (into []))))
-
-  (count pkgs)
-
-  (->> (group-by :name pkgs)
-       (reduce (fn [acc [k vs]] (assoc acc k (build-package-json (->> vs (reduce (fn [acc {v :version :as x}] (assoc acc v x)) {}))))) {})
-       ;; (take 10)
-       (pmap (fn [[pkg package]]
-               (println (str "pkgs/" pkg))
-               (gcs/spit-blob context (str "pkgs/" pkg) (cheshire.core/generate-string package {:pretty true})
-                              {:content-type "application/json"}))))
-
-  (time
-   (->>
-    (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
-    (filter (fn [x] (str/ends-with? (.getName x) ".ndjson.gz")))
-    (pmap (fn [src-blob]
-            (gcs/copy context src-blob
-                      (str/replace (.getName src-blob) #"^-/" "rs/")
-                      {:content-type "application/x-ndjson+gzip"})))
-    (doall)))
-
-  (time
-   (->>
-    (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
-    (filter (fn [x] (str/ends-with? (.getName x) ".ndjson.gz")))
-    (pmap (fn [src-blob] (gcs/delete context src-blob)))
-    (doall)))
-
-  (time
-   (->>
-    (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
-    (filter (fn [x] (str/ends-with? (.getName x) ".json")))
-    (pmap (fn [src-blob] (gcs/delete context src-blob)))
-    (doall)))
+  (reindex-tgz context)
+  ;; reindex ndjsons
+  ;; move sync code into namespace
+  ;; hard packages reindex
 
   )

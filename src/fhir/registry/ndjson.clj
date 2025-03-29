@@ -16,19 +16,20 @@
 (defn write-stream-ndjson-gz [outputstream cb]
   (with-open [writer (-> outputstream (GZIPOutputStream.) (io/writer))]
     (let [write (fn [^String s] (.write writer s) (.write writer "\n"))]
-      (cb write))))
+      (cb write))
+    (.flush writer)))
 
 (defn read-stream
-  "process-fn (fn [json line-number])"
-  [^InputStream input-stream process-fn & [acc]]
+  "process-fn (fn [json line-number]), if no read into vector"
+  [^InputStream input-stream & [process-fn acc]]
   (with-open [gz-stream (GZIPInputStream. input-stream)
               reader (-> gz-stream InputStreamReader. BufferedReader.)]
     (loop [line (.readLine reader)
            line-number 0
-           acc (or acc {})]
+           acc (or acc [])]
       (if line
         (let [res (cheshire.core/parse-string line keyword)
-              acc (process-fn acc res line-number)]
+              acc (if process-fn (process-fn acc res line-number) (conj acc res))]
           (recur (.readLine reader) (inc line-number) acc))
         acc))))
 

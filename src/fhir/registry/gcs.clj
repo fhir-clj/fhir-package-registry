@@ -170,6 +170,7 @@
   (with-open [w (output-stream context DEFAULT_BUCKET filename opts)]
     (.write w (.getBytes content))))
 
+;; TODO: obsolete
 (defn re-index [context]
   (let [svc (get-svc context)
         idx (->> (objects context DEFAULT_BUCKET "-") (sort-by #(.getName %))
@@ -263,8 +264,6 @@
                 (flush)
                 (index-ndjson context (.getName x))))
         (doall)))
-
-  
 
 
   )
