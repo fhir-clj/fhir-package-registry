@@ -231,6 +231,9 @@
             (catch Exception e
               (println :tar-error filename (.getMessage e)))))))))
 
+(defn read-feed [context]
+  (fhir.registry.ndjson/read-stream (input-stream context DEFAULT_BUCKET "feed.ndjson.gz")))
+
 (system/defstart [context cfg]
   (system/set-system-state context [:svc] (mk-service cfg))
   {})
