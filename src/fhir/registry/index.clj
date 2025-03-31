@@ -324,11 +324,10 @@
 
 (defn hard-update-resources [context]
   (->> (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
-       (pmap (fn [x]
+       (mapv (fn [x]
                (let [file (str/replace (.getName x) #"(^-/|\.tgz$)" "")]
                  (index-resources context file)
-                 (print ".") (flush))))
-       (into []))
+                 (print ".") (flush)))))
   :done)
 
 
