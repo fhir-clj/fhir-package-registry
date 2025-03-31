@@ -65,6 +65,24 @@
                  (catch Exception e
                    (println ::resources-sync-error (.getMessage e))))))))
 
+(def missed-canonicals-sql
+  "
+select name, version
+from fhir_packages.package p
+--where not exists (select 1 from fhir_packages.canonical c where c.package_name = p.name and c.package_version = p.version limit 1)
+limit ?
+")
+
+(defn sync-missed-canonicals [context limit]
+  (let [missed-pkgs (pg/execute! context {:sql [missed-canonicals-sql limit]})]
+    (->> missed-pkgs
+         (pmap (fn [pkg]
+                 (try
+                   (load-package-canonicals context pkg)
+                   (println :> (:name pkg) (:version pkg))
+                   (catch Exception e
+                     (println ::resources-sync-error (.getMessage e)))))))))
+
 (defn start-periodic-job [job-name period-ms f]
   (let [thread (Thread.
                 (fn [] (loop []
@@ -122,5 +140,7 @@
 
   (sync-packages context)
   (sync-canonicals context)
+
+  (sync-missed-canonicals context 10)
 
   )

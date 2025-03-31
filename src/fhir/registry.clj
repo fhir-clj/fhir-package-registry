@@ -41,7 +41,7 @@
   (uui/boost-response
    context request
    [:div
-    [:div {:class "px-10 flex items-center space-x-4 border-b border-gray-300"}
+    [:div {:class "px-10 flex items-center space-x-4 border-b border-gray-300 bg-gray-600 text-gray-200"}
      [:b "FHIR Packages"]
      [:a {:href "/"   :class "text-sm px-2 py-3"} "Packages"]
      [:a {:href "/canonicals" :class "text-sm px-2 py-3"} "Canonicals"]
@@ -595,6 +595,7 @@ limit 1000
                                            :pg pg-config
                                            :fhir.registry.gcs {:service-account "./sa.json"}))))
 
+(def sync-missed-canonicals fhir.registry.database/sync-missed-canonicals)
 
 (defn start-dev []
   (def pg-config (pgd/ensure-pg "fhir-registry"))
@@ -629,7 +630,7 @@ limit 1000
   (pg/execute! context {:sql "select lower(author) as author, count(*) from fhir_packages.package group by 1 order by 2 desc limit 50"})
   (pg/execute! context {:sql "select \"fhirVersions\", count(*) from fhir_packages.package group by 1 order by 2 desc limit 50"})
   (pg/execute! context {:sql "select lower(type) as author, count(*) from fhir_packages.package group by 1 order by 2 desc limit 50"})
-
+  
 
 
   )
