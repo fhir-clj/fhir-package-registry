@@ -291,19 +291,19 @@
      (gcs/output-stream context gcs/DEFAULT_BUCKET out-file)
      (fn [write]
        (try
-         (reduce-tar inps (fn [acc file read]
-                            (if (str/ends-with? file ".json")
+         (reduce-tar inps (fn [_acc file read]
+                            (when (str/ends-with? file ".json")
                               (try
-                                (let [res (cheshire.core/parse-string (read))]
-                                  (if (and (get res "url") (get res "resourceType"))
-                                    (do #_(println file (get res "url") (get res "resourceType") (get res "kind") (get res "type"))
-                                        (write (cheshire.core/generate-string (assoc (dissoc res "text") "_filename" file)))
-                                        (assoc acc file (select-keys res ["url" "resourceType" "kind"])))
-                                    acc))
+                                (let [txt (read)
+                                      txt (if (str/starts-with? txt "\uFEFF") (subs txt 1) txt)
+                                      res (cheshire.core/parse-string txt)]
+                                  (when (and (get res "url") (get res "resourceType"))
+                                    #_(println file (get res "url") (get res "resourceType") (get res "kind") (get res "type"))
+                                    (write (cheshire.core/generate-string (assoc (dissoc res "text") "_filename" file)))
+                                    #_(assoc acc file (select-keys res ["url" "resourceType" "kind"]))))
                                 (catch Exception e
-                                  (println file (.getMessage e))
-                                  acc))
-                              acc)))
+                                  (println file (.getMessage e)))))
+                            nil))
          (catch Exception e
            (println :tar-error filename (.getMessage e))))))))
 
@@ -333,14 +333,16 @@
 
 (defn hard-update-resources [context]
   (->> (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
-       (pmap (fn [x]
-               (when (str/ends-with? (.getName x) ".tgz")
-                 (let [file (str/replace (.getName x) #"(^-/|\.tgz$)" "")]
-                   (try
-                     (index-resources context file)
-                     (print ".")
-                     (flush)
-                     (catch Exception e (println ::error (.getMessage e))))))))
+       (map-indexed
+        (fn [idx x]
+               (let [name (.getName x)]
+                 (when (str/ends-with?  name ".tgz")
+                   (let [file (str/replace name #"(^-/|\.tgz$)" "")]
+                     (try
+                       (index-resources context file)
+                       (print (str idx ","))
+                       (flush)
+                       (catch Exception e (println ::error (.getMessage e)))))))))
        (doall))
   :done)
 
