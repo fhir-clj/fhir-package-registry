@@ -623,6 +623,7 @@ limit 1000
                                            :fhir.registry.gcs {:service-account "./sa.json"}))))
 
 (def sync-missed-canonicals fhir.registry.database/sync-missed-canonicals)
+(def hard-update-resources fhir.registry.index/hard-update-resources)
 
 (defn start-dev []
   (def pg-config (pgd/ensure-pg "fhir-registry"))

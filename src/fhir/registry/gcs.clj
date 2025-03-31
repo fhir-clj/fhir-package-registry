@@ -207,10 +207,31 @@
                         (println ::re-index-error (str pkg (.getMessage e))))))))))
     :ok))
 
+(comment
+  (def context fhir.registry/context)
+
+  (def inps (input-stream context DEFAULT_BUCKET "-/hl7.terminology.r4-6.2.0.tgz"))
+
+  (index-ndjson )
+
+  (reduce-tar inps (fn [acc file read]
+                     (if (str/ends-with? file ".json")
+                       (let [res (cheshire.core/parse-string (read))]
+                         (println file (get res "resourceType") (get res "url")))
+                       acc)))
+
+  (cheshire.core/parse-string (slurp "/tmp/fhir/node_modules/hl7.terminology.r4/ValueSet-v3-HL7FormatCodes.json"))
+
+  (index-ndjson context "-/hl7.terminology.r4-6.2.0.tgz")
+
+  )
+
 (defn index-ndjson [context filename]
     (time
      (let [inps (input-stream context DEFAULT_BUCKET filename)
-           out-file (str/replace filename #"\.tgz" ".ndjson.gz")]
+           out-file (-> (str/replace filename #"\.tgz$" ".ndjson.gz")
+                        (str/replace #"^-/" "rs/"))
+           _ (println :> out-file)]
        (fhir.registry.ndjson/write-stream-ndjson-gz
         (output-stream context DEFAULT_BUCKET out-file)
         (fn [write]

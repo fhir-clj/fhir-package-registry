@@ -323,6 +323,14 @@
     (->> diff
          (pmap (fn [s] (println :index s) (index-resources context s))))))
 
+(defn hard-update-resources [context]
+  (->> (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
+       (pmap (fn [x]
+               (let [file (str/replace (.getName x) #"(^-/|\.tgz$)" "")]
+                 (index-resources context file)
+                 (print ".") (flush))))
+       (doall)))
+
 
 (system/defstart
   [context config]
