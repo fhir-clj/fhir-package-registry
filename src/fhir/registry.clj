@@ -422,7 +422,7 @@ limit 1000
       (layout
        context request
        [:div {:class "p-3" }
-        (search-input request {:url "/canonicals" :push-url "?" :placeholder "Search with prefix: hl7 fhir r5"})
+        (search-input request {:url "/canonicals" :placeholder "Search with prefix: hl7 fhir r5"})
         (canonicals-grid context request canonicals)]))))
 
 (defn ^{:http {:path "/canonicals/:id"}}
@@ -604,7 +604,6 @@ limit 1000
 (defn stop-dev []
   (system/stop-system context))
 
-
 (comment
   (require '[system.dev :as dev])
   (dev/update-libs)
@@ -630,7 +629,6 @@ limit 1000
   (pg/execute! context {:sql "select lower(author) as author, count(*) from fhir_packages.package group by 1 order by 2 desc limit 50"})
   (pg/execute! context {:sql "select \"fhirVersions\", count(*) from fhir_packages.package group by 1 order by 2 desc limit 50"})
   (pg/execute! context {:sql "select lower(type) as author, count(*) from fhir_packages.package group by 1 order by 2 desc limit 50"})
-  
 
 
   )
