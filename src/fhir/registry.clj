@@ -37,18 +37,42 @@
   (or (str/includes? (get-in request [:headers "accept"] "") "json")
       (= "json" (get-in request [:query-params :_format]))))
 
+(defn canonical-icon [can]
+  (cond
+    (= "StructureDefinition" (:resourceType can))
+    (ico/document-check "size-5 text-gray-500" :outline)
+    (= "ValueSet" (:resourceType can))
+    (ico/tag "size-5 text-gray-500" :outline)
+    (= "CodeSystem" (:resourceType can))
+    (ico/queue-list "size-5 text-gray-500" :outline)
+    (= "Questionnaire" (:resourceType can))
+    (ico/pencil-square "size-5 text-gray-500" :outline)
+    (= "ConceptMap" (:resourceType can))
+    (ico/arrows-right-left "size-5 text-gray-500" :outline)
+    (= "OperationDefinition" (:resourceType can))
+    (ico/code-bracket-square "size-5 text-gray-500" :outline)
+    (= "SearchParameter" (:resourceType can))
+    (ico/document-magnifying-glass "size-5 text-gray-500" :outline)
+    (= "MessageDefinition" (:resourceType can))
+    (ico/document-arrow-up "size-5 text-gray-500" :outline)
+    (= "ImplementationGuide" (:resourceType can))
+    (ico/folder-open "size-5 text-gray-500" :outline)
+    (= "CapabilityStatement" (:resourceType can))
+    (ico/globe-alt "size-5 text-gray-500" :outline)
+    :else
+    (ico/document "size-5 text-gray-500" :outline)))
+
 (defn layout [context request content]
   (uui/boost-response
    context request
    [:div
     [:div {:class "px-10 flex items-center space-x-4 border-b border-gray-300 bg-gray-600 text-gray-200"}
-     [:b "FHIR Packages"]
+     (ico/fire "size-6 text-gray-200")
      [:a {:href "/"   :class "text-sm px-2 py-3"} "Packages"]
      [:a {:href "/canonicals" :class "text-sm px-2 py-3"} "Canonicals"]
      [:a {:href "/timeline"   :class "text-sm px-2 py-3"} "Logs"]
      [:a {:href "/problems"   :class "text-sm px-2 py-3"} "Problems"]
-     [:div {:class "flex-1"}]
-     ]
+     [:div {:class "flex-1"}]]
     [:div {:class "py-3 px-6"} content]]))
 
 (defn fragment-tabs [{{tab :tab} :query-params} & tabs]
@@ -71,7 +95,6 @@
 (defn elipse [txt & [limit]]
   (when txt
     [:span (subs txt 0 (min (count txt) (or limit 100))) "..."]))
-
 
 (defn search-input [request {push-url :push-url url :url ph :placeholder trg :target dont-push :dont-push}]
   (let [q (:search (:query-params request))]
@@ -275,10 +298,11 @@
                        (sort-by :_filename))]
     [:div {:class "mt-4"}
      [:table.uui {:class "text-sm"}
-      [:thead [:tr [:th "resourceType"] [:th "file"]]]
+      [:thead [:tr [:th] [:th "resourceType"] [:th "file"]]]
       [:tbody
        (for [c canonicals]
          [:tr
+          [:td (canonical-icon c)]
           [:td (:resourceType c)]
           [:td [:a {:title (:_filename c)
                     :href (str "/canonicals/" (:id c)) :class "text-sky-600"}
@@ -359,14 +383,14 @@ order by 1
   package-version
   [context {{package :package version :version} :route-params :as request}]
   (if-let [package   (pg.repo/read context {:table "fhir_packages.package" :match {:name package :version version}})]
-    (let [package         (format-package package)
-          default-view   #(package-default-view context request package)
-          dependant-view #(package-dependant-view context request package)
+    (let [package          (format-package package)
+          default-view    #(package-default-view context request package)
+          dependant-view  #(package-dependant-view context request package)
           canonicals-view #(package-canonicals-view context request package)
-          tabs (fragment-tabs request
-                              "Package"    default-view
-                              "Canonicals" canonicals-view
-                              "Dependant"  dependant-view)]
+          tabs             (fragment-tabs request
+                                          "Package"    default-view
+                                          "Canonicals" canonicals-view
+                                          "Dependant"  dependant-view)]
       (if (not (json? request))
         (cond (= "search-results" (uui/hx-target request))
               (uui/response (package-canonicals context request package))
@@ -398,12 +422,15 @@ limit 1000
                                            [:pg/param (str "%" (str/replace q #"\s+" "%") "%")]])
                                  :limit 300}})))
 
+
+
 (defn canonicals-grid [context request canonicals]
   [:div#search-results {:class "mt-4"}
    [:table.uui {:class "text-sm"}
     [:tbody
      (for [can canonicals]
        [:tr
+        [:td (canonical-icon can)]
         [:td (:resourceType can)]
         [:td [:a {:href (str "/canonicals/" (:id can)) :class "text-sky-700"}
               (:url can) "|" (or (:version can) (:package_version can))]]

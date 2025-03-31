@@ -1966,6 +1966,9 @@
   .text-green-600 {
     color: var(--color-green-600);
   }
+  .text-red-200 {
+    color: var(--color-red-200);
+  }
   .text-red-400 {
     color: var(--color-red-400);
   }
