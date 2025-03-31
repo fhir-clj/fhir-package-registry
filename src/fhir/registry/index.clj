@@ -322,12 +322,26 @@
     (->> diff
          (pmap (fn [s] (println :index s) (index-resources context s))))))
 
+(comment
+  (def context fhir.registry/context)
+
+  (hard-update-resources context)
+
+   ;; openapi/IHE.PIXm.Manager.openapi.json Unexpected character ('﻿' (code 65279 / 0xfeff)): expected a valid value (JSON String, Number, Array, Object or token 'null', 'true' or 'false')
+
+  )
+
 (defn hard-update-resources [context]
   (->> (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
-       (mapv (fn [x]
-               (let [file (str/replace (.getName x) #"(^-/|\.tgz$)" "")]
-                 (index-resources context file)
-                 (print ".") (flush)))))
+       (pmap (fn [x]
+               (when (str/ends-with? (.getName x) ".tgz")
+                 (let [file (str/replace (.getName x) #"(^-/|\.tgz$)" "")]
+                   (try
+                     (index-resources context file)
+                     (print ".")
+                     (flush)
+                     (catch Exception e (println ::error (.getMessage e))))))))
+       (doall))
   :done)
 
 
