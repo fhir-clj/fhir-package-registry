@@ -284,29 +284,28 @@
        (mapv (fn [thr] (.interrupt thr)))))
 
 (defn index-resources [context filename]
-  (time
-   (let [inps (gcs/input-stream context gcs/DEFAULT_BUCKET (str "-/" filename ".tgz"))
-         out-file (str "rs/" filename ".ndjson.gz")]
-     (println :sync out-file)
-     (fhir.registry.ndjson/write-stream-ndjson-gz
-      (gcs/output-stream context gcs/DEFAULT_BUCKET out-file)
-      (fn [write]
-        (try
-          (reduce-tar inps (fn [acc file read]
-                             (if (str/ends-with? file ".json")
-                               (try
-                                 (let [res (cheshire.core/parse-string (read))]
-                                   (if (and (get res "url") (get res "resourceType"))
-                                     (do #_(println file (get res "url") (get res "resourceType") (get res "kind") (get res "type"))
-                                         (write (cheshire.core/generate-string (assoc (dissoc res "text") "_filename" file)))
-                                         (assoc acc file (select-keys res ["url" "resourceType" "kind"])))
-                                     acc))
-                                 (catch Exception e
-                                   (println file (.getMessage e))
-                                   acc))
-                               acc)))
-          (catch Exception e
-            (println :tar-error filename (.getMessage e)))))))))
+  (let [inps (gcs/input-stream context gcs/DEFAULT_BUCKET (str "-/" filename ".tgz"))
+        out-file (str "rs/" filename ".ndjson.gz")]
+    ;; (println :sync out-file)
+    (fhir.registry.ndjson/write-stream-ndjson-gz
+     (gcs/output-stream context gcs/DEFAULT_BUCKET out-file)
+     (fn [write]
+       (try
+         (reduce-tar inps (fn [acc file read]
+                            (if (str/ends-with? file ".json")
+                              (try
+                                (let [res (cheshire.core/parse-string (read))]
+                                  (if (and (get res "url") (get res "resourceType"))
+                                    (do #_(println file (get res "url") (get res "resourceType") (get res "kind") (get res "type"))
+                                        (write (cheshire.core/generate-string (assoc (dissoc res "text") "_filename" file)))
+                                        (assoc acc file (select-keys res ["url" "resourceType" "kind"])))
+                                    acc))
+                                (catch Exception e
+                                  (println file (.getMessage e))
+                                  acc))
+                              acc)))
+         (catch Exception e
+           (println :tar-error filename (.getMessage e))))))))
 
 
 (defn update-resources [context]
@@ -329,7 +328,8 @@
                (let [file (str/replace (.getName x) #"(^-/|\.tgz$)" "")]
                  (index-resources context file)
                  (print ".") (flush))))
-       (doall)))
+       (into []))
+  :done)
 
 
 (system/defstart
