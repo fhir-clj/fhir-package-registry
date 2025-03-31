@@ -69,7 +69,7 @@
   "
 select name, version
 from fhir_packages.package p
---where not exists (select 1 from fhir_packages.canonical c where c.package_name = p.name and c.package_version = p.version limit 1)
+where not exists (select 1 from fhir_packages.canonical c where c.package_name = p.name and c.package_version = p.version limit 1)
 limit ?
 ")
 
