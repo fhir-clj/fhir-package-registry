@@ -658,5 +658,6 @@ limit 1000
   (pg/execute! context {:sql "select \"fhirVersions\", count(*) from fhir_packages.package group by 1 order by 2 desc limit 50"})
   (pg/execute! context {:sql "select lower(type) as author, count(*) from fhir_packages.package group by 1 order by 2 desc limit 50"})
 
+  (sync-missed-canonicals context 10)
 
   )
