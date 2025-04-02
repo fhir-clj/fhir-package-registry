@@ -563,20 +563,21 @@ limit 1000
    :body {}})
 
 
+
+
 (defn format-relative-time
   [^java.time.Instant instant]
   (let [now (java.time.Instant/now)
         duration (java.time.Duration/between instant now)
         minutes-ago (.toMinutes duration)
         hours-ago (.toHours duration)
-        days-ago (.toDays duration)
-        formatter (java.time.format.DateTimeFormatter/ofPattern "MMM d, yyyy")]
+        days-ago (.toDays duration)]
     (cond
       (< minutes-ago 1) "just now"
       (< minutes-ago 60) (format "%d %s ago" minutes-ago (if (= 1 minutes-ago) "minute" "minutes"))
       (< hours-ago 24) (format "%d %s ago" hours-ago (if (= 1 hours-ago) "hour" "hours"))
       (< days-ago 3) (format "%d %s ago" days-ago (if (= 1 days-ago) "day" "days"))
-      :else (.format formatter instant))))
+      :else (first (str/split (str instant) #"T")))))
 
 (defn ^{:http {:path "/timeline"}}
   timeline

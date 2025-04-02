@@ -828,6 +828,9 @@
   .h-97 {
     height: calc(var(--spacing) * 97);
   }
+  .h-106 {
+    height: calc(var(--spacing) * 106);
+  }
   .h-207 {
     height: calc(var(--spacing) * 207);
   }
@@ -1722,6 +1725,12 @@
   }
   .p-42 {
     padding: calc(var(--spacing) * 42);
+  }
+  .p-46 {
+    padding: calc(var(--spacing) * 46);
+  }
+  .p-81 {
+    padding: calc(var(--spacing) * 81);
   }
   .p-97 {
     padding: calc(var(--spacing) * 97);
