@@ -562,9 +562,6 @@ limit 1000
   {:status 200
    :body {}})
 
-
-
-
 (defn format-relative-time
   [^java.time.Instant instant]
   (let [now (java.time.Instant/now)
@@ -642,6 +639,7 @@ limit 1000
   ;; (pgd/delete-pg "fhir-registry")
 
   (start-dev)
+  
   (stop-dev)
 
   (pg/execute! context {:sql "select count(*) from fhir_packages.canonical"})

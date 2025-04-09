@@ -174,6 +174,12 @@
           (mapv (fn [x] (write (cheshire.core/generate-string x))))))))
 
 
+(defn index-versions [context meta-package]
+  (doseq [[v package] (:versions meta-package)]
+    (gcs/spit-blob context (str "pkgs/" (:name meta-package) "/" (name v))
+                   (cheshire.core/generate-string package {:pretty true})
+                   {:content-type "application/json"})))
+
 (defn index-new-packages [context new-pkgs-idx pkg-idx]
   (->> new-pkgs-idx
        (pmap (fn [[pkg-name pkg-versions]]
@@ -185,7 +191,8 @@
                                                              {})))]
                    (println :write (str "pkgs/" pkg-name))
                    (gcs/spit-blob context (str "pkgs/" pkg-name)
-                                  (cheshire.core/generate-string pkgv {:pretty true}) {:content-type "application/json"})))))
+                                  (cheshire.core/generate-string pkgv {:pretty true}) {:content-type "application/json"})
+                   (index-versions context pkgv)))))
        (doall)))
 
 (defn update-feed [context new-packages]
@@ -346,6 +353,15 @@
        (doall))
   :done)
 
+(defn reindex-versions [context]
+  (->>
+   (gcs/lazy-objects context gcs/DEFAULT_BUCKET "pkgs/")
+   (mapv (fn [x] 
+           (let [name (str/replace (.getName x) #"^pkgs/" "")]
+             (when-not (or (str/blank? name) (str/includes? name "/"))
+               (println name)
+               (index-versions context (gcs/read-json-blob x))))))))
+ 
 
 (system/defstart
   [context config]
@@ -390,6 +406,14 @@
 
   (update-resources context)
 
+  (->>
+   (gcs/lazy-objects context gcs/DEFAULT_BUCKET "pkgs/")
+   (mapv (fn [x] 
+           (let [name (str/replace (.getName x) #"^pkgs/" "")]
+             (when-not (or (str/blank? name) (str/includes? name "/"))
+               (println name)
+               (index-versions context (gcs/read-json-blob x)))))))
+ 
 
 
   )
