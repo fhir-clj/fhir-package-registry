@@ -72,11 +72,23 @@
             minor))
         major))))
 
+(defn latest [versions]
+  (or (->> versions
+           (filter (fn [v] (nil? (:pre-release (parse-semver v)))))
+           (sort semver-comparator)
+           (last))
+      (->> versions
+           (sort semver-comparator)
+           (last))))
+
 (comment
   ;; Sort a list of versions
   (sort semver-comparator 
         ["1.0.0-alpha.1"  "1.0.0" "1.0.0-alpha" "1.0.0-beta" 
          "1.0.0-beta.11" "1.0.0+build.123" "1.1.0" "2.0.0"])
+
+  (latest ["1.0.0-alpha.1"  "1.0.0" "1.0.0-alpha" "1.0.0-beta"
+           "1.0.0-beta.11" "1.0.0+build.123" "1.1.0" "2.0.0" "3.0.0-betta"])
 
 
   (def vs

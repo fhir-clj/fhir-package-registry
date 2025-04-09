@@ -138,7 +138,7 @@
         [:td
          (ico/cube "size-4 text-gray-400 inline mr-2" :outline)
          [:a {:class "py-2 text-sky-600" :href (str "/" (:name pkg))} (:name pkg)]]
-        [:td (last (sort semver/semver-comparator (:versions pkg)))]
+        [:td (semver/latest (:versions pkg))]
         [:td {:class "text-gray-500"} (first (:authors pkg))]
         [:td {:class "text-gray-500"} (str/join ", " (filter identity (:fhirVersions pkg)))]
         [:td {:class "text-gray-500"} (count (:versions pkg))]
@@ -189,6 +189,53 @@
        :headers {"content-type" "application/json"}
        :status 200})))
 
+(defn fix-for-npm [p]
+  (-> p
+      (dissoc :descriptions :versions :canonicals :maintainers :authors)
+      (assoc :version (semver/latest (:versions p))
+             :keywords (or (:keywords p) [])
+             :description (last (:descriptions p))
+             :maintainers (->> (last (:maintainers p))
+                               (mapv (fn [x]
+                                       (if-let [nm (:name x)]
+                                         (dissoc (assoc x :username nm) :name)
+                                         (assoc x :username "unknown")))))
+             :publisher {:username (last (:authors p))})))
+
+(defn npm-search-packages [context request]
+  (let [q (:text (:query-params request))]
+  (->> 
+   (pg/execute! context {:dsql {:select [:pg/list :name
+                                         [:pg/sql "json_agg(distinct resource->'maintainers') as maintainers"]
+                                         [:pg/sql "array_agg(distinct author) as authors"]
+                                         [:pg/sql "array_agg(distinct canonical) as canonicals"]
+                                         [:pg/sql "array_agg(distinct description) as descriptions"]
+                                         [:pg/sql "array_agg(distinct version) as versions"]]
+                                :from :fhir_packages.package
+                                :where (when (and q (not (str/blank? q)))
+                                         [:ilike :name [:pg/param (str "%" (str/replace q #"\s+" "%") "%")]])
+                                :group-by [:pg/list 1]
+                                :limit 100}})
+   (mapv fix-for-npm))))
+
+(comment
+  (npm-search-packages context {:query-params {:text "hl7"}})
+
+  (pg/execute! context {:sql "select * from fhir_packages.package limit 10"})
+
+  )
+
+
+
+(defn ^{:http {:path "/-/v1/search"}}
+  npm-search
+  [context {{text :text} :query-params :as request}]
+  (let [pkgs (npm-search-packages context request)
+        resp-data {:objects (->> pkgs (mapv (fn [p] {:package p })))
+                   :total 100}]
+    {:status 200
+     :headers {"content-type" "application/json"}
+     :body (cheshire.core/generate-string resp-data {:pretty true})}))
 
 (defn remove-nils [m]
   (clojure.walk/postwalk
@@ -509,6 +556,7 @@ limit 1000
     (catch Exception e
       (println (.getMessage e)))))
 
+
 ;; https://github.com/HealthIntersections/fhirserver/blob/master/server/package_spider.pas
 ;; https://fhir.github.io/ig-registry/package-feeds.json
 ;; https://github.com/HealthIntersections/fhirserver/blob/master/server/package_spider.pas
@@ -617,8 +665,7 @@ limit 1000
 (defn main [& args]
   (def pg-config {:database "registry" :user "registry" :port 5432 :host "localhost" :password (System/getenv "PG_PASSWORD")})
   (def context (system/start-system (assoc default-config
-                                           :pg pg-config
-                                           :fhir.registry.gcs {:service-account "./sa.json"}))))
+                                           :pg pg-config :fhir.registry.gcs {:service-account "./sa.json"}))))
 
 (def sync-missed-canonicals fhir.registry.database/sync-missed-canonicals)
 (def hard-update-resources fhir.registry.index/hard-update-resources)
