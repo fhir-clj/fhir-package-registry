@@ -201,7 +201,7 @@
 (defn format-package [{v :version :as package}]
   (assoc (remove-nils package)
          :_id (str (:name package) "@" (:version package))
-         :dist {:tarball (str "http://fs.get-ig.org/-/" (:name package) "-" (:version package) ".tgz")}))
+         :dist {:tarball (str "https://fs.get-ig.org/-/" (:name package) "-" (:version package) ".tgz")}))
 
 (defn build-package-json [versions]
   (when (seq versions)
@@ -258,8 +258,8 @@
           [:div {:class "flex items-top space-x-8"}
            [:div {:class "py-3 w-3xl" }
             [:h1.uui {:class "border-b py-2"} (:name package)]
-            (copy-block (str "npm install --registry http://fs.get-ig.org/pkgs " (:name package)) "Install package")
-            (copy-block (format "curl http://fs.get-ig.org/rs/%s | gunzip | jq '{url,resourceType,version, id}'"
+            (copy-block (str "npm install --registry https://fs.get-ig.org/pkgs " (:name package)) "Install package")
+            (copy-block (format "curl https://fs.get-ig.org/rs/%s | gunzip | jq '{url,resourceType,version, id}'"
                                 (str (:name package) "-" latest-v ".ndjson.gz"))
                         "Get resources")
             [:p {:class "mt-4 text-gray-600 text-sm w-3xl"}
@@ -347,8 +347,8 @@ order by 1
     [:div {:class "mt-4"}
      [:p {:class "mt-4 text-gray-600 text-sm"} (:description package)]
 
-     (copy-block (str "npm install --registry http://fs.get-ig.org/pkgs " (:name package) "@" (:version package)) "Install package")
-     (copy-block (format "curl http://fs.get-ig.org/rs/%s | gunzip | jq '{url,resourceType,version, id}'"
+     (copy-block (str "npm install --registry https://fs.get-ig.org/pkgs " (:name package) "@" (:version package)) "Install package")
+     (copy-block (format "curl https://fs.get-ig.org/rs/%s | gunzip | jq '{url,resourceType,version, id}'"
                          (str (:name package) "-" (:version package) ".ndjson.gz"))
                  "Get resources")
      [:b {:class "block mt-4 mb-2"} "Deps"]
@@ -373,7 +373,7 @@ order by 1
    [:h1.uui {:class  "flex items-center space-x-8 border-b py-2"}
     [:span {:class "flex-1"} (:name package)  "@" (:version package)]
     (map (fn [x] [:span {:class "flex items-center"} (ico/fire "size-4") [:span x]]) (:fhirVersions package))
-    [:a {:href (str "http://fs.get-ig.org/-/" (:name package) "-" (:version package) ".tgz")
+    [:a {:href (str "https://fs.get-ig.org/-/" (:name package) "-" (:version package) ".tgz")
          :class "border px-2 py-1 hover:bg-gray-100 rounded border-gray-300 hover:text-sky-600 text-gray-600"}
      (ico/cloud-arrow-down "size-4")]]
    ])

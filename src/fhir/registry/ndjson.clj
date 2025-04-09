@@ -51,7 +51,3 @@
     (.getInputStream conn)))
 
 
-(comment
-  (with-open [s (url-stream "http://fs.get-ig.org/p/hl7.fhir.us.core/7.0.0/structuredefinition.ndjson.gz")]
-    (read-stream s (fn [_acc res _] (println (:url res)))))
-  )

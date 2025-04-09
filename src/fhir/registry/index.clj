@@ -40,7 +40,7 @@
 (defn format-package [{v :version :as package}]
   (assoc (remove-nils package)
          :_id (str (:name package) "@" (:version package))
-         :dist {:tarball (str "http://fs.get-ig.org/-/" (:name package) "-" (:version package) ".tgz")}))
+         :dist {:tarball (str "https://fs.get-ig.org/-/" (:name package) "-" (:version package) ".tgz")}))
 
 (defn build-package-json [versions]
   (when (seq versions)
