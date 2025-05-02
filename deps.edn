@@ -8,6 +8,7 @@
         context/pg             {:local/root "./libs/pg"}
         context/http           {:local/root "./libs/http"}
         context/gcs            {:local/root "./libs/gcs"}
+        fhir-schema            {:local/root "./libs/fhir-schema"}
         pjson/pjson            {:mvn/version "1.0.0"}
         }
 

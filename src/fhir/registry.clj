@@ -19,6 +19,7 @@
    [fhir.registry.semver :as semver]
    [fhir.registry.ndjson :as ndjson]
    [fhir.registry.index]
+   [fhir.schema.translate]
    [fhir.registry.database])
   (:import
    [java.util Base64]))
@@ -195,6 +196,7 @@
       (assoc :version (semver/latest (:versions p))
              :keywords (or (:keywords p) [])
              :description (last (:descriptions p))
+             :versions  (reverse (sort semver/semver-comparator (:versions p)))
              :maintainers (->> (last (:maintainers p))
                                (mapv (fn [x]
                                        (if-let [nm (:name x)]
@@ -219,7 +221,7 @@
    (mapv fix-for-npm))))
 
 (comment
-  (npm-search-packages context {:query-params {:text "hl7"}})
+  (npm-search-packages context {:query-params {:text "us core"}})
 
   (pg/execute! context {:sql "select * from fhir_packages.package limit 10"})
 
@@ -499,21 +501,59 @@ limit 1000
         (search-input request {:url "/canonicals" :placeholder "Search with prefix: hl7 fhir r5"})
         (canonicals-grid context request canonicals)]))))
 
+
+(defn other-canonical-versions [context canonical]
+  (let [versions (pg/execute! context {:sql ["select id, url, version,  package_name, package_version, version from fhir_packages.canonical where url = ? limit 100" (:url canonical)]})]
+    [:form {:action (str "/canonicals/compare")}
+     [:div {:class "my-2"}
+       [:button {:class "cursor-pointer text-xs border px-2 py-1 bg-gray-500 text-white rounded hover:bg-gray-600"} "Compare"]]
+     [:table.uui {:class "text-sm"}
+      [:thead [:tr [:th "url"] [:th "version"] [:th "package_name"] [:th "package_version"]]]
+      [:tbody
+       (for [v versions]
+         [:tr
+          [:td [:input {:name "canonicals" :type "checkbox" :checked (true? (= (:id canonical) (:id v))) :value (:id v)}]]
+          [:td [:a {:class "text-sky-600" :href (str "/canonicals/" (:id v))} (:url v)]]
+          [:td (:version v)] [:td (:package_name v)] [:td (:package_version v)]])]]]))
+
+(comment
+  
+  (other-canonical-versions context {:url "http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient"})
+
+  )
+
 (defn ^{:http {:path "/canonicals/:id"}}
   show-canonical
   [context {{id :id} :route-params :as request}]
-  (let [canonical (pg.repo/read context {:table :fhir_packages.canonical :match {:id id}})]
+  (let [canonical (pg.repo/read context {:table :fhir_packages.canonical :match {:id id}})
+        schema-view #(uui/yaml-block (fhir.schema.translate/translate canonical))
+        tabs-view (fragment-tabs request
+                        "JSON" #(uui/json-block canonical)
+                        "FHIR Schema" schema-view
+                        "Other Versions" #(other-canonical-versions context canonical))] 
+    (println :? (uui/hx-target request) (= "tab" (uui/hx-target request)))
+    (if (= "tab" (uui/hx-target request))
+      (uui/response tabs-view)
+      (layout
+       context request
+       [:div {:class "p-3" }
+        (uui/breadcramp
+         ["/" "Packages"]
+         [(str "/" (:package_name canonical) "/" (:package_version canonical))
+          (str (:package_name canonical) "@" (:package_version canonical))]
+         ["#" (:url canonical)])
+        [:div {:class "mt-4"} tabs-view ]]))))
+
+(defn ^{:http {:path "/canonicals/compare"}}
+  canonicals-compare
+  [context request]
+  (let [canonical-ids (:canonicals (:query-params request))
+        canonicals (pg.repo/select context {:table :fhir_packages.canonical :where [:in :id [:pg/params-list  canonical-ids]]})]
     (layout
      context request
      [:div {:class "p-3" }
-      (uui/breadcramp
-       ["/" "Packages"]
-       [(str "/" (:package_name canonical) "/" (:package_version canonical))
-        (str (:package_name canonical) "@" (:package_version canonical))]
-       ["#" (:url canonical)])
-      [:div {:class "mt-4"}
-       (uui/json-block canonical)]])))
-
+      [:div {:class "mt-4"} 
+       (uui/json-block canonicals)]])))
 
 (defn ^{:http {:path "/timeline"}}
   timeline
@@ -652,6 +692,11 @@ limit 1000
   (pg/migrate-up context)
   (http/register-ns-endpoints context current-ns)
   {})
+
+(comment
+  (http/collect-endpoints-from-ns current-ns)
+
+  )
 
 (def default-config
   {:services ["pg" "pg.repo" "http" "uui" "fhir.registry" "fhir.registry.gcs"

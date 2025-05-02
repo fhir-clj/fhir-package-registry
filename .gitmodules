@@ -7,3 +7,6 @@
 [submodule "libs/system"]
 	path = libs/system
 	url = git@github.com:context-clj/system.git
+[submodule "libs/fhir-schema"]
+	path = libs/fhir-schema
+	url = git@github.com:fhir-clj/fhir-schema.git
