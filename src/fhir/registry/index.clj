@@ -186,10 +186,9 @@
                (when-let [versions (mapv format-package (get pkg-idx pkg-name))]
                  (let [pkgv (build-package-json (->> (concat versions (mapv format-package pkg-versions))
                                                      (reduce (fn [acc {v :version :as pkg}]
-                                                               (println pkg)
                                                                (assoc acc (or v "0.0.0") (assoc pkg :version (or v "0.0.0"))))
                                                              {})))]
-                   (println :write (str "pkgs/" pkg-name))
+                   (println ::write (str "pkgs/" pkg-name))
                    (gcs/spit-blob context (str "pkgs/" pkg-name)
                                   (cheshire.core/generate-string pkgv {:pretty true}) {:content-type "application/json"})
                    (index-versions context pkgv)))))

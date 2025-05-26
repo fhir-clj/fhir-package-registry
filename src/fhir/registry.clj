@@ -544,16 +544,58 @@ limit 1000
          ["#" (:url canonical)])
         [:div {:class "mt-4"} tabs-view ]]))))
 
+
+(defn all-keys [xs]
+  (reduce (fn [acc m] (into acc (keys m))) #{} xs))
+
+(defn keypathify [acc path m]
+  (reduce (fn [acc [k v]]
+            
+            (if (map? v)
+              (keypathify acc (conj path k) v) 
+              (if (or (contains? #{:index :short :description} k) (= false v) (nil? v))
+                acc
+                (assoc acc (conj path k) v)))
+            ) acc m))
+
+;;here
 (defn ^{:http {:path "/canonicals/compare"}}
   canonicals-compare
   [context request]
   (let [canonical-ids (:canonicals (:query-params request))
-        canonicals (pg.repo/select context {:table :fhir_packages.canonical :where [:in :id [:pg/params-list  canonical-ids]]})]
+        canonicals (pg.repo/select context {:table :fhir_packages.canonical :where [:in :id [:pg/params-list  canonical-ids]]})
+        canonicals (->> canonicals
+                        (mapv (fn [c] (fhir.schema.translate/translate c)))
+                        (mapv (fn [c] (keypathify {} [] c))))]
     (layout
      context request
      [:div {:class "p-3" }
       [:div {:class "mt-4"} 
-       (uui/json-block canonicals)]])))
+       [:table.uui {:class "text-xs"}
+        [:thead [:tr [:th "key"] [:th "value"]]]
+        [:tbody
+         (for [k (->> canonicals (all-keys) (sort-by #(str/join "." %))) ]
+           (when-not  (= 1 (count (into #{} (map #(get % k) canonicals))))
+             [:tr
+              [:td {:class "whitespace-nowrap"} 
+               [:span {:class "text-gray-500"} (str/join "." (map name (butlast k))) ]
+               [:b {:class "text-gray-600"} "." (name (last k)) ] ]
+              (for [c canonicals]
+                (let [v (get c k)]
+                  [:td (when v (pr-str v))]
+                  ))]))]]]])))
+
+
+(comment
+  (def context fhir.registry/context)
+  
+  (def canonicals 
+    (pg.repo/select context {:table :fhir_packages.canonical :where [:in :id [:pg/params-list  ids]]}))
+
+  
+
+  
+  )
 
 (defn ^{:http {:path "/timeline"}}
   timeline
