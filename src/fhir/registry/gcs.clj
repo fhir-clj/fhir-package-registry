@@ -27,8 +27,7 @@
 (def DEFAULT_BUCKET "fs.get-ig.org")
 
 (system/defmanifest
-  {:description "google storage for FHIR packages"
-   :config {:service-account {:type "string" }}})
+  {:description "google storage for FHIR packages"})
 
 (set! *warn-on-reflection* false)
 
