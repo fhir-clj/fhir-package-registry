@@ -503,7 +503,7 @@ limit 1000
 
 
 (defn other-canonical-versions [context canonical]
-  (let [versions (pg/execute! context {:sql ["select id, url, version,  package_name, package_version, version from fhir_packages.canonical where url = ? limit 100" (:url canonical)]})]
+  (let [versions (pg/execute! context {:sql ["select id, url, version,  package_name, package_version, version from fhir_packages.canonical where url = ?  order by version, package_name desc limit 100" (:url canonical)]})]
     [:form {:action (str "/canonicals/compare")}
      [:div {:class "my-2"}
        [:button {:class "cursor-pointer text-xs border px-2 py-1 bg-gray-500 text-white rounded hover:bg-gray-600"} "Compare"]]
@@ -559,6 +559,13 @@ limit 1000
             ) acc m))
 
 ;;here
+
+(defn versioned-vals [canonicals k]
+  (->> canonicals 
+       (reduce (fn [acc c] 
+                 (update acc (get-in c [:keypath k]) (fn [x] (conj (or x #{}) (:version c))))) 
+               {})))
+
 (defn ^{:http {:path "/canonicals/compare"}}
   canonicals-compare
   [context request]
@@ -566,36 +573,26 @@ limit 1000
         canonicals (pg.repo/select context {:table :fhir_packages.canonical :where [:in :id [:pg/params-list  canonical-ids]]})
         canonicals (->> canonicals
                         (mapv (fn [c] (fhir.schema.translate/translate c)))
-                        (mapv (fn [c] (keypathify {} [] c))))]
+                        (mapv (fn [c] (assoc c :keypath (keypathify {} [] (dissoc c :version :package_version :package_name))))))]
     (layout
      context request
      [:div {:class "p-3" }
+      [:h1.uui "Compare Canonicals: " (:url (first canonicals))]
       [:div {:class "mt-4"} 
-       [:table.uui {:class "text-xs"}
-        [:thead [:tr [:th "key"] [:th "value"]]]
-        [:tbody
-         (for [k (->> canonicals (all-keys) (sort-by #(str/join "." %))) ]
-           (when-not  (= 1 (count (into #{} (map #(get % k) canonicals))))
-             [:tr
-              [:td {:class "whitespace-nowrap"} 
-               [:span {:class "text-gray-500"} (str/join "." (map name (butlast k))) ]
-               [:b {:class "text-gray-600"} "." (name (last k)) ] ]
-              (for [c canonicals]
-                (let [v (get c k)]
-                  [:td (when v (pr-str v))]
-                  ))]))]]]])))
+       [:div {:class "text-sm"}
+        (for [k (->> canonicals (map :keypath) (all-keys) (sort-by #(str/join "." %))) ]
+          (when-not  false #_(= 1 (count (into #{} (map #(get-in % [:keypath k]) canonicals))))
+            [:div {:class "py-1 pb-2"}
+             [:div {:class "py-1 border-b border-gray-200"} 
+              [:span {:class "text-gray-600"} (str/join "." (map name (butlast k))) ]
+              [:b {:class "text-gray-700 font-medium"} "." (name (last k)) ] ]
+             [:div {:class "pl-8 space-y-1 text-xs mt-2"}
+              (for [[v versions] (versioned-vals canonicals k)]
+                [:div  {:class "flex items-center border border-gray-200 rounded-sm"}
+                 [:div  {:class "bg-gray-50 px-2 py-0.5 border-r border-gray-100 min-w-34"} (str/join ", " versions)]
+                 [:div {:class "px-2 py-0.5 "} (str (or v "~"))]
+                 ])]]))]]])))
 
-
-(comment
-  (def context fhir.registry/context)
-  
-  (def canonicals 
-    (pg.repo/select context {:table :fhir_packages.canonical :where [:in :id [:pg/params-list  ids]]}))
-
-  
-
-  
-  )
 
 (defn ^{:http {:path "/timeline"}}
   timeline
