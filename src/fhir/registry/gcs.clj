@@ -27,8 +27,7 @@
 (def DEFAULT_BUCKET "fs.get-ig.org")
 
 (system/defmanifest
-  {:description "google storage for FHIR packages"
-   :config {:service-account {:type "string" }}})
+  {:description "google storage for FHIR packages"})
 
 (set! *warn-on-reflection* false)
 
@@ -148,12 +147,21 @@
           (recur (cb acc nm read-fn)))
         acc))))
 
+(comment
+  (def context fhir.registry/context)
+  (def pkgs (->> (list-packages context)
+                 (take 10)))
+  (mapv (fn [x] (.getName x)) pkgs)
+
+
+  )
 
 (defn list-packages [context]
-  (->> (objects context DEFAULT_BUCKET "-")
+  (->> (objects context DEFAULT_BUCKET "pkgs")
        (filter (fn [x]
-                 (and (str/ends-with? (.getName x) ".json")
-                      (not (str/ends-with? (.getName x) ".index.json")))))))
+                 (and (re-find #"^[^/]*\/[^/]*\/[^/]*$" (.getName x))
+                      (= "application/json" (.getContentType x)))))))
+
 
 (defn list-tgz [context]
   (->> (objects context DEFAULT_BUCKET "-")
@@ -262,6 +270,7 @@
 (comment
   (def context (system/start-system {:services ["fhir.registry.gcs"]
                                      :fhir.registry.gcs {:service-account "./sa.json"}}))
+
 
   (system/stop-system context)
 

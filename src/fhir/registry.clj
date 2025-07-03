@@ -20,9 +20,11 @@
    [fhir.registry.ndjson :as ndjson]
    [fhir.registry.index]
    [fhir.schema.translate]
-   [fhir.registry.database])
+   [fhir.registry.database]
+   [nrepl.server :as nrepl])
   (:import
-   [java.util Base64]))
+   [java.util Base64])
+  (:gen-class))
 
 (system/defmanifest
   {:description "FHIR Registry"
@@ -206,7 +208,7 @@
 
 (defn npm-search-packages [context request]
   (let [q (:text (:query-params request))]
-  (->> 
+  (->>
    (pg/execute! context {:dsql {:select [:pg/list :name
                                          [:pg/sql "json_agg(distinct resource->'maintainers') as maintainers"]
                                          [:pg/sql "array_agg(distinct author) as authors"]
@@ -417,7 +419,7 @@ order by 1
    [:div#search-results {:class "mt-4"} (package-canonicals context request package)]])
 
 (defn package-header [context request package]
-  [:div 
+  [:div
    (uui/breadcramp ["/" "Packages"] [(str "/" (:name package)) (:name package)] ["#" (:version package)])
    [:h1.uui {:class  "flex items-center space-x-8 border-b py-2"}
     [:span {:class "flex-1"} (:name package)  "@" (:version package)]
@@ -517,7 +519,7 @@ limit 1000
           [:td (:version v)] [:td (:package_name v)] [:td (:package_version v)]])]]]))
 
 (comment
-  
+
   (other-canonical-versions context {:url "http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient"})
 
   )
@@ -530,7 +532,7 @@ limit 1000
         tabs-view (fragment-tabs request
                         "JSON" #(uui/json-block canonical)
                         "FHIR Schema" schema-view
-                        "Other Versions" #(other-canonical-versions context canonical))] 
+                        "Other Versions" #(other-canonical-versions context canonical))]
     (println :? (uui/hx-target request) (= "tab" (uui/hx-target request)))
     (if (= "tab" (uui/hx-target request))
       (uui/response tabs-view)
@@ -550,9 +552,9 @@ limit 1000
 
 (defn keypathify [acc path m]
   (reduce (fn [acc [k v]]
-            
+
             (if (map? v)
-              (keypathify acc (conj path k) v) 
+              (keypathify acc (conj path k) v)
               (if (or (contains? #{:index :short :description} k) (= false v) (nil? v))
                 acc
                 (assoc acc (conj path k) v)))
@@ -741,15 +743,24 @@ limit 1000
   {:services ["pg" "pg.repo" "http" "uui" "fhir.registry" "fhir.registry.gcs"
               "fhir.registry.index"
               "fhir.registry.database"]
-   :http {:port 3333
+   :http {:port (Integer/parseInt (or (System/getenv "PORT") "3333"))
           :max-body 108388608}})
 
 
 ;; TODO: add envs to system
-(defn main [& args]
-  (def pg-config {:database "registry" :user "registry" :port 5432 :host "localhost" :password (System/getenv "PG_PASSWORD")})
+(defn -main [& _args]
+  (when-let [nrepl-port (System/getenv "NREPL_PORT")]
+    (let [nrepl-host (or (System/getenv "NREPL_HOST") "0.0.0.0")]
+      (nrepl/start-server :bind nrepl-host :port (Integer/parseInt nrepl-port))))
+  (def pg-config {:database (or (System/getenv "PGDATABASE") "registry")
+                  :user (or (System/getenv "PGUSER") "registry")
+                  :port (Integer/parseInt (or (System/getenv "PGPORT") "5432"))
+                  :host (System/getenv "PGHOST")
+                  :password (System/getenv "PGPASSWORD")
+                  :max-pool-size 50})
   (def context (system/start-system (assoc default-config
-                                           :pg pg-config :fhir.registry.gcs {:service-account "./sa.json"}))))
+                                           :pg pg-config
+                                           :fhir.registry.gcs {:service-account (System/getenv "GCS_SERVICE_ACCOUNT")}))))
 
 (def sync-missed-canonicals fhir.registry.database/sync-missed-canonicals)
 (def hard-update-resources fhir.registry.index/hard-update-resources)
@@ -770,7 +781,7 @@ limit 1000
   ;; (pgd/delete-pg "fhir-registry")
 
   (start-dev)
-  
+
   (stop-dev)
 
   (pg/execute! context {:sql "select count(*) from fhir_packages.canonical"})

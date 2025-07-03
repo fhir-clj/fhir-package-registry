@@ -10,3 +10,4 @@ sa.json
 .clj-kondo/
 .calva
 vscode
+target

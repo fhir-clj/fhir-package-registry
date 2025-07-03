@@ -8,8 +8,13 @@
   (when version-str
     (let [[version-core build] (str/split version-str #"\+" 2)
           [version-nums pre-release] (str/split version-core #"-" 2)
-          [major minor patch] (mapv #(Integer/parseInt %)
-                                   (str/split version-nums #"\." 3))]
+          [major minor patch] (->>
+                               (str/split version-nums #"\." 3)
+                               (mapv (fn [x] (str/replace x #"[^0-9]" "")))
+                               (mapv (fn [x]
+                                       (if (str/blank? x)
+                                         0
+                                         (Integer/parseInt x)))))]
       {:major major
        :minor (or minor 0)
        :patch (or patch 0)

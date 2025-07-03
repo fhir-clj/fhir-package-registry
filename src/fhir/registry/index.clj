@@ -135,7 +135,7 @@
 (defn load-canonicals [context]
   (let [context (system/ctx-set-log-level context :error)]
     (time
-     (->> (gcs/lazy-objects context gcs/DEFAULT_BUCKET "-/")
+     (->> (gcs/lazy-objects context gcs/DEFAULT_BUCKET "rs")
           (filter (fn [x] (str/ends-with? (.getName x) ".ndjson.gz")))
           (pmap (fn [x]
                  (try
@@ -237,6 +237,7 @@
       (index-new-packages context new-pkgs-idx pkg-idx)
       (write-current-packages context (->> (concat cur-pgs new-packages) (sort-by (fn [x] [(:name x) (:version x)]))))
       (update-feed context new-packages))))
+
 ;; OBSOLETE
 (defn load-from-url-pacakge2 [context file-name]
   (time
@@ -385,6 +386,10 @@
   (sync-with-package2 context)
 
   (reindex-tgz context)
+
+  (re-index context)
+  (load-canonicals context)
+
   ;; reindex ndjsons
   ;; move sync code into namespace
   ;; hard packages reindex
@@ -395,6 +400,13 @@
 
   (start context {})
   (stop context {:jobs ["pacakges2-sync" "index-tgz" "index-resources"]})
+
+  (pg/execute! context {:sql ["select table_schema || ' ' || table_name from information_schema.tables where table_schema='fhir_packages'"]})
+
+  (pg/execute! context {:sql "truncate fhir_packages.canonical"})
+
+  (pg/execute! context {:sql "truncate fhir_packages.package"})
+  (pg/execute! context {:sql "truncate fhir_packages.package_dependency"})
 
 
   (->> (Thread/getAllStackTraces) keys (mapv #(.getName %)))
@@ -407,12 +419,12 @@
 
   (->>
    (gcs/lazy-objects context gcs/DEFAULT_BUCKET "pkgs/")
-   (mapv (fn [x] 
+   (mapv (fn [x]
            (let [name (str/replace (.getName x) #"^pkgs/" "")]
              (when-not (or (str/blank? name) (str/includes? name "/"))
                (println name)
                (index-versions context (gcs/read-json-blob x)))))))
- 
+
 
 
   )
