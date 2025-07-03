@@ -1,6 +1,7 @@
 {:paths ["src" "resources"]
  :deps {org.clojure/clojure                   {:mvn/version "1.12.0"}
         http-kit/http-kit                     {:mvn/version "2.8.0"}
+        nrepl/nrepl                           {:mvn/version "1.1.0"}
         cheshire/cheshire                     {:mvn/version "5.10.2"}
         org.apache.commons/commons-compress   {:mvn/version "1.27.1"}
         context/system                        {:local/root "./libs/system"}
@@ -13,16 +14,14 @@
  :aliases
  {:build {:deps {io.github.clojure/tools.build {:git/tag "v0.10.9" :git/sha "e405aac"}}
           :ns-default build}}
-  :dev
-  {:extra-paths ["dev" "test" "resources"]
-   :jvm-opts ["-Djdk.attach.allowAttachSelf"]}
+ :dev {:extra-paths ["dev" "test" "resources"]
+       :jvm-opts ["-Djdk.attach.allowAttachSelf"]}
 
-  :test
-  {:extra-deps {lambdaisland/kaocha {:mvn/version "1.77.1236"}}
-   :extra-paths ["test"]
-   ;;:jvm-opts   ^:replace ["-XX:-OmitStackTraceInFastThrow"]
-   :main-opts  ["-m" "kaocha.runner"]}
+ :test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.77.1236"}}
+        :extra-paths ["test"]
+        ;;:jvm-opts   ^:replace ["-XX:-OmitStackTraceInFastThrow"]
+        :main-opts  ["-m" "kaocha.runner"]}
 
-  :run {:extra-paths ["dev"]
-        :jvm-opts    ["-XX:-OmitStackTraceInFastThrow"]
-        :main-opts   ["-m" "zd.hsm"]}}
+ :run {:extra-paths ["dev"]
+       :jvm-opts    ["-XX:-OmitStackTraceInFastThrow"]
+       :main-opts   ["-m" "zd.hsm"]}}

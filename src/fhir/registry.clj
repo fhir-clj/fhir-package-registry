@@ -20,7 +20,8 @@
    [fhir.registry.ndjson :as ndjson]
    [fhir.registry.index]
    [fhir.schema.translate]
-   [fhir.registry.database])
+   [fhir.registry.database]
+   [nrepl.server :as nrepl])
   (:import
    [java.util Base64])
   (:gen-class))
@@ -751,6 +752,9 @@ limit 1000
 
 ;; TODO: add envs to system
 (defn -main [& _args]
+  (when-let [nrepl-port (System/getenv "NREPL_PORT")]
+    (let [nrepl-host (or (System/getenv "NREPL_HOST") "0.0.0.0")]
+      (nrepl/start-server :bind nrepl-host :port (Integer/parseInt nrepl-port))))
   (def pg-config {:database (or (System/getenv "PGDATABASE") "registry")
                   :user (or (System/getenv "PGUSER") "registry")
                   :port (Integer/parseInt (or (System/getenv "PGPORT") "5432"))
