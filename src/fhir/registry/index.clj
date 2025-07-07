@@ -137,7 +137,7 @@
     (time
      (->> (gcs/lazy-objects context gcs/DEFAULT_BUCKET "rs")
           (filter (fn [x] (str/ends-with? (.getName x) ".ndjson.gz")))
-          (pmap (fn [x]
+          (mapv (fn [x]
                  (try
                    (load-ndjson context (.getName x))
                    (print ".") (flush)
