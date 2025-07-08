@@ -602,8 +602,16 @@ limit 1000
   (let [broken-deps (get-broken-deps context)]
     (layout
      context request
-     [:div {:class "p-3" }
+     [:div {:class "p-3"}
       [:h1.uui "TBD"]])))
+
+
+(defn ^{:http {:path "/healthz"}}
+  healthcheck
+  [_context _request]
+  {:status 200
+   :body "OK"})
+
 
 (defn ^{:http {:path "/problems"}}
   problems
