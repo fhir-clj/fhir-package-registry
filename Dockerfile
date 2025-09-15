@@ -17,4 +17,4 @@ FROM bellsoft/liberica-openjre-alpine-musl:24
 
 COPY --from=builder /app/target/fhir-registry.jar /app/fhir-registry.jar
 
-CMD ["java", "-jar", "/app/fhir-registry.jar"]
+ENTRYPOINT ["java", "-jar", "/app/fhir-registry.jar"]

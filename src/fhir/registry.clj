@@ -563,9 +563,9 @@ limit 1000
 ;;here
 
 (defn versioned-vals [canonicals k]
-  (->> canonicals 
-       (reduce (fn [acc c] 
-                 (update acc (get-in c [:keypath k]) (fn [x] (conj (or x #{}) (:version c))))) 
+  (->> canonicals
+       (reduce (fn [acc c]
+                 (update acc (get-in c [:keypath k]) (fn [x] (conj (or x #{}) (:version c)))))
                {})))
 
 (defn ^{:http {:path "/canonicals/compare"}}
@@ -580,12 +580,12 @@ limit 1000
      context request
      [:div {:class "p-3" }
       [:h1.uui "Compare Canonicals: " (:url (first canonicals))]
-      [:div {:class "mt-4"} 
+      [:div {:class "mt-4"}
        [:div {:class "text-sm"}
         (for [k (->> canonicals (map :keypath) (all-keys) (sort-by #(str/join "." %))) ]
           (when-not  false #_(= 1 (count (into #{} (map #(get-in % [:keypath k]) canonicals))))
             [:div {:class "py-1 pb-2"}
-             [:div {:class "py-1 border-b border-gray-200"} 
+             [:div {:class "py-1 border-b border-gray-200"}
               [:span {:class "text-gray-600"} (str/join "." (map name (butlast k))) ]
               [:b {:class "text-gray-700 font-medium"} "." (name (last k)) ] ]
              [:div {:class "pl-8 space-y-1 text-xs mt-2"}
@@ -764,8 +764,7 @@ limit 1000
                   :user (or (System/getenv "PGUSER") "registry")
                   :port (Integer/parseInt (or (System/getenv "PGPORT") "5432"))
                   :host (System/getenv "PGHOST")
-                  :password (System/getenv "PGPASSWORD")
-                  :max-pool-size 50})
+                  :password (System/getenv "PGPASSWORD")})
   (def context (system/start-system (assoc default-config
                                            :pg pg-config
                                            :fhir.registry.gcs {:service-account (System/getenv "GCS_SERVICE_ACCOUNT")}))))
