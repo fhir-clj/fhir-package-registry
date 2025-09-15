@@ -117,7 +117,7 @@
 
 (defn load-ndjson [context file-name]
   ;; (println file-name)
-  (let [package (str/replace file-name #"(^-/|.ndjson.gz$)" "")
+  (let [package (str/replace file-name #"(^-/|^rs/|.ndjson.gz$)" "")
        [package-name package-version] (str/split package #"-" 2)]
    (pg.repo/load
     context {:table "fhir_packages.canonical"}
@@ -356,12 +356,12 @@
 (defn reindex-versions [context]
   (->>
    (gcs/lazy-objects context gcs/DEFAULT_BUCKET "pkgs/")
-   (mapv (fn [x] 
+   (mapv (fn [x]
            (let [name (str/replace (.getName x) #"^pkgs/" "")]
              (when-not (or (str/blank? name) (str/includes? name "/"))
                (println name)
                (index-versions context (gcs/read-json-blob x))))))))
- 
+
 
 (system/defstart
   [context config]

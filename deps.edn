@@ -13,15 +13,15 @@
 
  :aliases
  {:build {:deps {io.github.clojure/tools.build {:git/tag "v0.10.9" :git/sha "e405aac"}}
-          :ns-default build}}
- :dev {:extra-paths ["dev" "test" "resources"]
-       :jvm-opts ["-Djdk.attach.allowAttachSelf"]}
+          :ns-default build}
+  :dev {:extra-paths ["dev" "test" "resources"]
+        :jvm-opts ["-Djdk.attach.allowAttachSelf"]}
 
- :test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.77.1236"}}
-        :extra-paths ["test"]
-        ;;:jvm-opts   ^:replace ["-XX:-OmitStackTraceInFastThrow"]
-        :main-opts  ["-m" "kaocha.runner"]}
+  :test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.77.1236"}}
+         :extra-paths ["test"]
+         ;;:jvm-opts   ^:replace ["-XX:-OmitStackTraceInFastThrow"]
+         :main-opts  ["-m" "kaocha.runner"]}
 
- :run {:extra-paths ["dev"]
-       :jvm-opts    ["-XX:-OmitStackTraceInFastThrow"]
-       :main-opts   ["-m" "zd.hsm"]}}
+  :run {:extra-paths ["dev"]
+        :jvm-opts    ["-XX:-OmitStackTraceInFastThrow"]
+        :main-opts   ["-m" "zd.hsm"]}}}
