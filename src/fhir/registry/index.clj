@@ -363,13 +363,31 @@
                (index-versions context (gcs/read-json-blob x))))))))
 
 
+(defn reindex-pkgs-and-versions [context]
+  (->>
+    (gcs/lazy-objects context gcs/DEFAULT_BUCKET "pkgs/")
+    (mapv (fn [x]
+            (let [pkg-name (str/replace (.getName x) #"^pkgs/" "")]
+              (when-not (or (str/blank? pkg-name) (str/includes? pkg-name "/"))
+                (println pkg-name)
+                (let [pkg (-> x gcs/read-json-blob format-package)
+                      fmt (->> (:versions pkg)
+                               (reduce-kv #(assoc %1 %2 (format-package %3)) {})
+                               (assoc pkg :versions))]
+                  (gcs/spit-blob context
+                                 (str "pkgs/" pkg-name)
+                                 (cheshire.core/generate-string fmt {:pretty true})
+                                 {:content-type "application/json"})
+                  (index-versions context fmt))))))))
+
+
 (system/defstart
   [context config]
   (println ::start)
   (start-periodic-job "packages2-sync" (* 5 60 1000) (fn [] (sync-with-package2 context)))
   (start-periodic-job "index-tgz" (* 5 60 1000) (fn [] (reindex-tgz context)))
   (start-periodic-job "index-resources" (* 5 60 1000) (fn [] (update-resources context)))
-  {:jobs ["pacakges2-sync" "index-tgz" "index-resources"]})
+  {:jobs ["packages2-sync" "index-tgz" "index-resources"]})
 
 (system/defstop
   [context state]
@@ -389,6 +407,8 @@
 
   (re-index context)
   (load-canonicals context)
+
+  (reindex-pkgs-and-versions context)
 
   ;; reindex ndjsons
   ;; move sync code into namespace
