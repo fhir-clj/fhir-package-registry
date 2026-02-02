@@ -17,6 +17,7 @@
    [fhir.registry.semver :as semver]
    [fhir.registry.ndjson :as ndjson]
    [fhir.registry.packages2 :as packages2]
+   [fhir.registry.healthsamurai :as healthsamurai]
    [fhir.registry.tar :as tar])
   (:import
    [java.util Base64]
@@ -105,6 +106,32 @@
   (clojure.set/difference
    (into #{} (packages2/packages))
    (into #{} (map :name (list-tgz context)))))
+
+(defn load-from-healthsamurai
+  "Download a package from Health Samurai by URL and save to GCS"
+  [context filename url]
+  (with-open [inps (.openStream (java.net.URL. url))
+              outs (fhir.registry.gcs/output-stream context fhir.registry.gcs/DEFAULT_BUCKET (str "-/" filename))]
+    (io/copy inps outs)))
+
+(defn diff-with-healthsamurai
+  "Returns packages from Health Samurai feed that are not in GCS"
+  [context]
+  (let [existing-tgz (into #{} (map :name (list-tgz context)))
+        hs-packages (healthsamurai/packages-with-urls)]
+    (->> hs-packages
+         (filter #(not (contains? existing-tgz (:filename %)))))))
+
+(defn sync-with-healthsamurai
+  "Sync packages from Health Samurai feed to GCS"
+  [context]
+  (let [diff (diff-with-healthsamurai context)]
+    (when (empty? diff)
+      (system/info context ::healthsamurai "Nothing to sync from Health Samurai"))
+    (->> diff
+         (pmap (fn [{:keys [filename url]}]
+                 (system/info context ::healthsamurai (str "load " filename " from Health Samurai"))
+                 (time (load-from-healthsamurai context filename url)))))))
 
 (defn sync-with-package2 [context]
   (let [diff (diff-with-packages2 context)]
@@ -385,9 +412,10 @@
   [context config]
   (println ::start)
   (start-periodic-job "packages2-sync" (* 5 60 1000) (fn [] (sync-with-package2 context)))
+  (start-periodic-job "healthsamurai-sync" (* 5 60 1000) (fn [] (sync-with-healthsamurai context)))
   (start-periodic-job "index-tgz" (* 5 60 1000) (fn [] (reindex-tgz context)))
   (start-periodic-job "index-resources" (* 5 60 1000) (fn [] (update-resources context)))
-  {:jobs ["packages2-sync" "index-tgz" "index-resources"]})
+  {:jobs ["packages2-sync" "healthsamurai-sync" "index-tgz" "index-resources"]})
 
 (system/defstop
   [context state]
@@ -402,6 +430,12 @@
   (def pkgs2 (packages2/packages))
 
   (sync-with-package2 context)
+
+  ;; Health Samurai sync
+  (healthsamurai/packages)
+  (healthsamurai/packages-with-urls)
+  (diff-with-healthsamurai context)
+  (sync-with-healthsamurai context)
 
   (reindex-tgz context)
 
