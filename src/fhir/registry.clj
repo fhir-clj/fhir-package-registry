@@ -252,7 +252,8 @@
 (defn format-package [{v :version :as package}]
   (assoc (remove-nils package)
          :_id (str (:name package) "@" (:version package))
-         :dist {:tarball (str "https://fs.get-ig.org/-/" (:name package) "-" (:version package) ".tgz")}))
+         :dist {:tarball (str "https://fs.get-ig.org/-/"
+                              (fhir.registry.index/tgz-filename (:name package) (:version package)))}))
 
 (defn build-package-json [versions]
   (when (seq versions)
@@ -311,7 +312,7 @@
             [:h1.uui {:class "border-b py-2"} (:name package)]
             (copy-block (str "npm install --registry https://fs.get-ig.org/pkgs " (:name package)) "Install package")
             (copy-block (format "curl https://fs.get-ig.org/rs/%s | gunzip | jq '{url,resourceType,version, id}'"
-                                (str (:name package) "-" latest-v ".ndjson.gz"))
+                                (str (fhir.registry.index/tgz-stem (:name package) latest-v) ".ndjson.gz"))
                         "Get resources")
             [:p {:class "mt-4 text-gray-600 text-sm w-3xl"}
              (:description package)]
@@ -424,7 +425,8 @@ order by 1
    [:h1.uui {:class  "flex items-center space-x-8 border-b py-2"}
     [:span {:class "flex-1"} (:name package)  "@" (:version package)]
     (map (fn [x] [:span {:class "flex items-center"} (ico/fire "size-4") [:span x]]) (:fhirVersions package))
-    [:a {:href (str "https://fs.get-ig.org/-/" (:name package) "-" (:version package) ".tgz")
+    [:a {:href (str "https://fs.get-ig.org/-/"
+                    (fhir.registry.index/tgz-filename (:name package) (:version package)))
          :class "border px-2 py-1 hover:bg-gray-100 rounded border-gray-300 hover:text-sky-600 text-gray-600"}
      (ico/cloud-arrow-down "size-4")]]
    ])

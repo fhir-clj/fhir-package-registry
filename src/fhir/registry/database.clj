@@ -4,7 +4,8 @@
             [pg.repo]
             [clojure.string :as str]
             [fhir.registry.ndjson]
-            [fhir.registry.gcs :as gcs]))
+            [fhir.registry.gcs :as gcs]
+            [fhir.registry.index :as index]))
 
 
 #_(defn load-canonicals [context]
@@ -41,7 +42,7 @@
 
 (defn load-package-canonicals [context {package-name :name package-version :version :as package}]
   ;; (println file-name)
-  (let [file-name (str "rs/" package-name "-" package-version ".ndjson.gz")]
+  (let [file-name (str "rs/" (index/tgz-stem package-name package-version) ".ndjson.gz")]
     (pg/execute! context {:sql ["delete from fhir_packages.canonical where package_name = ? and package_version = ?" package-name package-version]})
     (pg.repo/load
      context {:table "fhir_packages.canonical"}

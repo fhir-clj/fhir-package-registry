@@ -38,10 +38,23 @@
        x))
    m))
 
+(def tgz-name-overrides
+  "Packages whose .tgz file in GCS is named differently from <name>-<version>.tgz.
+   Keyed by package name from package.json."
+  {"us-core-extensions.legacy.aidbox" "us-core-extensions-hp.legacy.aidbox"})
+
+(defn tgz-stem
+  "Returns the file stem (without -/ prefix and .tgz suffix) used in GCS."
+  [package-name version]
+  (str (get tgz-name-overrides package-name package-name) "-" version))
+
+(defn tgz-filename [package-name version]
+  (str (tgz-stem package-name version) ".tgz"))
+
 (defn format-package [{v :version :as package}]
   (assoc (remove-nils package)
          :_id (str (:name package) "@" (:version package))
-         :dist {:tarball (str "https://fs.get-ig.org/-/" (:name package) "-" (:version package) ".tgz")}))
+         :dist {:tarball (str "https://fs.get-ig.org/-/" (tgz-filename (:name package) (:version package)))}))
 
 (defn build-package-json [versions]
   (when (seq versions)
@@ -82,7 +95,7 @@
 (defn load-from-simplifier [context pkg-name ]
   (if-let [pkg (fhir.registry.legacy/package-info pkg-name)]
     (with-open [inps (.openStream (java.net.URL. (:tarball (:dist pkg))))
-                outs  (fhir.registry.gcs/output-stream context fhir.registry.gcs/DEFAULT_BUCKET (str "-/" (:name pkg) "-" (:version pkg) ".tgz"))]
+                outs  (fhir.registry.gcs/output-stream context fhir.registry.gcs/DEFAULT_BUCKET (str "-/" (tgz-filename (:name pkg) (:version pkg))))]
       (io/copy inps outs))
     (throw (Exception. (str "No " pkg-name)))))
 
@@ -198,7 +211,7 @@
    (gcs/output-stream context gcs/DEFAULT_BUCKET "pgks.ndjson.gz")
    (fn [write]
      (->> pkgs
-          (mapv (fn [x] (-> x (dissoc :_id :dist) (assoc :tgz (str "-/" (:name x) "-" (:version x) ".tgz")))))
+          (mapv (fn [x] (-> x (dissoc :_id :dist) (assoc :tgz (str "-/" (tgz-filename (:name x) (:version x)))))))
           (sort-by (fn [x] (:tgz x)))
           (mapv (fn [x] (write (cheshire.core/generate-string x))))))))
 
@@ -233,7 +246,7 @@
                                       (assoc pkg
                                              :lsn idx
                                              :timestamp (java.time.Instant/now)
-                                             :tgz (str "-/" (:name pkg) "-" (:version pkg) ".tgz")))
+                                             :tgz (str "-/" (tgz-filename (:name pkg) (:version pkg)))))
                                     (inc (or lsn -1)))
                                    (doall))]
     (println :update/feed :from lsn)
@@ -277,7 +290,7 @@
 (defn load-from-simplifier [context pkg-name ]
   (if-let [pkg (fhir.registry.legacy/package-info pkg-name)]
     (with-open [inps (.openStream (java.net.URL. (:tarball (:dist pkg))))
-                outs  (fhir.registry.gcs/output-stream context fhir.registry.gcs/DEFAULT_BUCKET (str "-/" (:name pkg) "-" (:version pkg) ".tgz"))]
+                outs  (fhir.registry.gcs/output-stream context fhir.registry.gcs/DEFAULT_BUCKET (str "-/" (tgz-filename (:name pkg) (:version pkg))))]
       (io/copy inps outs))
     (throw (Exception. (str "No " pkg-name)))))
 
