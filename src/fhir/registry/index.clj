@@ -131,7 +131,8 @@
     (->> diff
          (pmap (fn [{:keys [filename url]}]
                  (system/info context ::healthsamurai (str "load " filename " from Health Samurai"))
-                 (time (load-from-healthsamurai context filename url)))))))
+                 (time (load-from-healthsamurai context filename url))))
+         (doall))))
 
 (defn sync-with-package2 [context]
   (let [diff (diff-with-packages2 context)]
@@ -140,7 +141,8 @@
     (->> diff
          (pmap (fn [x]
                  (system/info context ::packages2 (str "load " x " from packages2"))
-                 (time (load-from-url-pacakge2 context x)))))))
+                 (time (load-from-url-pacakge2 context x))))
+         (doall))))
 
 (defn load-ndjson [context file-name]
   ;; (println file-name)
@@ -302,7 +304,8 @@
                                                           :source_name (:name res)
                                                           :source_version (:version res)
                                                           :destination_name (name d)
-                                                          :destination_version v}})))))))))
+                                                          :destination_version v}})))))
+          (doall)))))
 
 (defn start-periodic-job [job-name period-ms f]
   (let [thread (Thread.
@@ -354,7 +357,8 @@
     (when (empty? diff)
       (system/info context ::packages2 "Nothing to ndjson"))
     (->> diff
-         (pmap (fn [s] (println :index s) (index-resources context s))))))
+         (pmap (fn [s] (println :index s) (index-resources context s)))
+         (doall))))
 
 (comment
   (def context fhir.registry/context)

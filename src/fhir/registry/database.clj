@@ -25,7 +25,7 @@
   (let [last-lsn (or (:lsn (first (pg/execute! context {:sql "select * from fhir_packages.import order by lsn desc limit 1"}))) -1)]
     (->> (gcs/read-feed context)
          (filter (fn [x] (> (:lsn x) last-lsn)))
-         (pmap (fn [pkg]
+         (mapv (fn [pkg]
                  (println :load pkg)
                  (pg.repo/upsert context {:table :fhir_packages.import  :resource (assoc pkg :id (str (:name pkg) "@" (:version pkg) "-" (:lsn pkg)))})
                  (pg.repo/upsert context {:table :fhir_packages.package :resource (assoc pkg :id (str (:name pkg) "@" (:version pkg)))})
@@ -57,8 +57,8 @@
           :ok))))))
 
 (defn sync-canonicals [context]
-  (->> (pg/execute! context {:sql "select * from fhir_packages.import where resources_loaded = false limit 100"})
-       (pmap (fn [pkg]
+  (->> (pg/execute! context {:sql "select * from fhir_packages.import where resources_loaded = false order by lsn limit 100"})
+       (mapv (fn [pkg]
                (try
                  (load-package-canonicals context pkg)
                  (println :> (pg.repo/upsert context {:table :fhir_packages.import :resource (assoc pkg :resources_loaded true)}))
